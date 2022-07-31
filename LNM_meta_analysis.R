@@ -207,7 +207,7 @@ return(metaz)
 ##########################################################
 
 #Get cleaned lists of gene expression and clinical data for all studies 
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.rds")
+alldata=readRDS(paste(Datadir, "Precog.HNSCC.all.exp.clin.data.rds", sep=""))
 explist=alldata$explist
 zscores.list=explist #expression
 infolist=alldata$infolist #clinical data
@@ -385,7 +385,7 @@ saveRDS(metaz.coxph.annot, paste(Resultsdir, "Precog.HNSCC.coxph.Liptak.metaz.al
 pvals.sig=metaz.coxph.annot$gene[metaz.coxph.annot$signficant=="yes"]
 
 #Make a dataframe indicating the studies each survival-associated gene is represented in 
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.rds")
+alldata=readRDS(paste(Datadir, "Precog.HNSCC.all.exp.clin.data.rds", sep=""))
 explist=alldata$explist
 zscores.list=explist
 infolist=alldata$infolist
@@ -619,7 +619,7 @@ saveRDS(metatab, paste0(Resultsdir,"lnm_associated_genes_zscore.rds"))
 #Clustering LNM-associated genes based on coexpression using Phenograph
 #####################################################
 
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.rds")
+alldata=readRDS(paste(Datadir, "Precog.HNSCC.all.exp.clin.data.rds", sep=""))
 explist=alldata$explist
 zscores.list=explist
 infolist=alldata$infolist
@@ -688,9 +688,9 @@ saveRDS(metatab, paste0(Resultsdir,"lnm_associated_genes_zscore.rds"))
 #########################################
 ############################################
 
-#Run meta-analysis of genes associated with level of differentiation in PRECOG
+#Run meta-analysis of genes associated with level of differentiation/tumor grade
 #have formatted differentiation level
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog_HNSCC_clinical_data/Precog.HNSCC.all.exp.clin.data.rds")
+alldata=readRDS(paste(Datadir, "Precog.HNSCC.all.exp.clin.data.rds", sep=""))
 explist=alldata$explist
 infolist=alldata$infolist
 
