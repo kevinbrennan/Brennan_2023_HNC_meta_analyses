@@ -1084,5 +1084,78 @@ int=RunUMAP(int, dims = 1:npcs)
 #save the integrated object
 saveRDS(int, paste0(dir, "Integated_Puram_prim_patients200cells.rds"))
 
+#################################################################
+#################################################################
+#Processing GSE26549 (Saintigny et al. Oral premalignant lesion (Leukoplakia) dataset)
+#################################################################
+#################################################################
+
+gse="GSE26549"
+filePaths = GEOquery::getGEOSuppFiles(gse, baseDir = expdir)
+
+#processing all hgu133plus2 datasets
+library(oligo)
+library(hugene10sthsentrezg.db)
+library(hugene10sthsentrezgcdf)
+library(hugene10sthsentrezgprobe)
+
+celdir=paste0(celdir, "/GSE26549/")
+setwd(celdir)
+untar("GSE26549_RAW.tar")
+
+data=affy::ReadAffy(celfile.path=celdir, cdfname="hugene10sthsentrezgcdf") 
+eset=affy::mas5(data)
+
+###
+mas5.ALL=exprs(eset)
+colnames(mas5.ALL)=gsub(" ","", colnames(mas5.ALL))
+colnames(mas5.ALL)=gsub("[.].*","", colnames(mas5.ALL))
+colnames(mas5.ALL)=gsub("_.*","", colnames(mas5.ALL))
+
+#Remove Affy control probes, which are at the end of the document and mess with the adding gene symbols to the rows
+#mas5.ALL=mas5.ALL[-grep("AFFX-", rownames(mas5.ALL)),]
+#Format values to 5 decimal places
+mas5.ALL=format(mas5.ALL, digits=5)
+mas5.ALL=as.matrix(mas5.ALL)
+
+mas5.ALL2=apply(mas5.ALL, 1, function(x) as.numeric(as.character(x)))
+mas5.ALL2=as.data.frame(t(mas5.ALL2))
+colnames(mas5.ALL2)=colnames(mas5.ALL)
+
+#get clinical info 
+library(GEOquery)
+gse="GSE26549"
+Sys.setenv(VROOM_CONNECTION_SIZE=500072)
+getSet=getGEO(gse)
+info=pData(getSet[[1]])
+
+setdiff(rownames(info), colnames(mas5.ALL2))
+setdiff(colnames(mas5.ALL2), rownames(info))
+
+info=info[match(colnames(mas5.ALL2), rownames(info)),]
+#quantile normalize
+mas5.ALL.qn=preprocessCore::normalize.quantiles(as.matrix(mas5.ALL2))
+dimnames(mas5.ALL.qn)=dimnames(mas5.ALL2)
+
+#collapse probes to genes 
+probes.ALL=row.names(mas5.ALL)
+entrezIDmap=hugene10sthsentrezgENTREZID
+entrezID.ALL = unlist(mget(probes.ALL, entrezIDmap))
+ID.ALL = unlist(mget(probes.ALL, entrezIDmap))
+collapserows.annot=as.data.frame(cbind(ID.ALL, entrezID.ALL))
+collapserows.annot$probe=rownames(collapserows.annot)
+collapserows.annot=na.omit(collapserows.annot[,c("entrezID.ALL", "probe")])
+
+mas5.collapse=WGCNA::collapseRows(datET=mas5.ALL.qn, rowGroup=collapserows.annot$entrezID.ALL, rowID=collapserows.annot$probe)
+mas5.c=mas5.collapse$datETcollapsed
+mas5.clog2=log2(mas5.c)
+
+#Now z-score the genes
+mas5.z=apply(mas5.clog2, 1, function(x)  (x-mean(x))/sd(x))
+mas5.z=as.data.frame(t(mas5.z))
+all(colnames(mas5.z)==rownames(info))
+
+allinfo=list(info=info, mas5.z=mas5.z)
+saveRDS(allinfo, paste0(celdir, "processed_exp_z_scores_", gse, ".rds"))
 
 
