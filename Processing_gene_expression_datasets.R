@@ -898,7 +898,7 @@ epi=subset(intfull, cells=cells)
 cd /home/kbren/python3-virtual-environments
 source env/bin/activate
 
-R
+R 
 
 Sys.setenv(RETICULATE_PYTHON="/home/kbren/python3-virtual-environments")
 library(CytoTRACE)

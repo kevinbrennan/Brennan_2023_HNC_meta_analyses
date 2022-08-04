@@ -200,6 +200,20 @@ metaz=sum(mdf$N*mdf$Z, na.rm=T)/sqrt(sum(mdf$N^2, na.rm=T))
 return(metaz)
 }
 
+
+#get set of prognostic genes that were identified by our meta-analyses
+makesig=function(genetype, group){
+allgenes2=readRDS(paste0(Datadir, "all.genes.survival.lnm.101021.rds"))
+levs=levels(allgenes2[,group])
+sigs=lapply(levs, function(lev) 
+{x=allgenes2[allgenes2[,group]==lev,genetype]
+x=x[!is.na(x)]
+return(x)})
+names(sigs)=levs
+return(sigs)
+}
+
+
 #########################################################
 ##########################################################
 #Meta-analysis of survival associated genes 
@@ -887,7 +901,232 @@ allgenes2$survival.gene.cluster.phenograph=plyr::revalue(allgenes2$survival.gene
 saveRDS(allgenes2, paste0(Datadir, "all.genes.survival.lnm.101021.rds"))
 
 
+#####################################################################################################
+#####################################################################################################
+#Meta-analyses to test the association of survival gene signatures with survival adjusted for HPV status, and the association of LNM gene signatures with LNM status adjusted for HPV status
+#####################################################################################################
+#####################################################################################################
 
+###########################################################################################
+#Running meta-analysis to test the association of survival gene signatures with survival adjusted for HPV status
+#############################################################################################
+
+#Retrieve prognostic gene signatures (sets of prognostic genes) from the dataframe that stores these genes
+sigs=
+c(makesig(genetype="gene",group="lnm.direction"),
+makesig(genetype="gene",group="lnm.gene.cluster.phenograph"),
+makesig(genetype="gene",group="survival.direction"),
+makesig(genetype="gene",group="survival.gene.cluster.phenograph"))
+
+#Testing association of survival gene signaures with survival, adjusting for HPV status
+alldata=readRDS(paste(Datadir, "Precog.HNSCC.all.exp.clin.data.rds", sep=""))
+explist=alldata$explist
+infolist=alldata$infolist
+
+#restrict to datasets with >1000 genes 
+gene.n.threshold=1000
+accessions.survival=names(which(lapply(explist, nrow)>=gene.n.threshold))
+infolist=infolist[accessions.survival]
+explist=explist[accessions.survival]
+
+#For each study, make a dataframe of prognostic gene scores for each prognostic gene signature. A prognostic gene score represent mean expression of all genes within the signature (i.e., set of prognostic genes)
+sigslist=list()
+#
+for(i in 1:length(explist)){
+ exp=explist[[i]]
+ sigdf=as.data.frame(t(abind::abind(lapply(sigs, function(x) scale(colMeans(exp[rownames(exp) %in% x,], na.rm = T))), along=2)))
+ sigslist[[i]]=sigdf
+}
+names(sigslist)=names(explist)
+
+alldata3=list(sigslist=sigslist, explist=explist, infolist=infolist)
+
+saveRDS(alldata3, "~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.sig.exp.clin.data.rds")
+###
+
+
+#
+explist=sigslist
+
+#Get survival objects
+Survival_objects=readRDS(paste(Resultsdir, "Precog.HNSCC.survival.objects.all.HNSCC.rds", sep=""))
+accessions.survival=intersect(accessions.survival, names(Survival_objects))
+
+#19 objects
+#Restrict to studies that were part of survival gene meta-analysis
+allcoxph=readRDS(paste(Resultsdir, "Precog.HNSCC.coxph.survival.allstudies.allHNSCC.updated.03.30.2010.rds", sep=""))
+accessions.survival=intersect(accessions.survival, names(allcoxph))
+#length(accessions.survival) #16 studies. Just Chung removed
+
+explist=explist[accessions.survival]
+Survival_objects=Survival_objects[accessions.survival]
+
+explist=lapply(names(Survival_objects), function(x) explist[[x]][,names(Survival_objects[[x]])])
+names(explist)=names(Survival_objects)
+infolist=lapply(names(Survival_objects), function(x) infolist[[x]][names(Survival_objects[[x]]),])
+names(infolist)=names(Survival_objects)
+
+numbers.HPV.surv=abind::abind(lapply(infolist, function(x) data.frame(Negative=length(which(x$COV_HNSCC_HPV_status=="negative")), Positive=length(which(x$COV_HNSCC_HPV_status=="positive")))), along=1)
+numbers.HPV.surv=as.data.frame(numbers.HPV.surv)
+saveRDS(numbers.HPV.surv, paste0(Datadir, "HPV.numbers.survival.rds"))
+##get studies with at least 10 HPV post and 10 HPV neg
+HPV.studies=rownames(numbers.HPV.surv[which(numbers.HPV.surv[,1]>=10 & numbers.HPV.surv[,2]>=10),])
+#Accession #"GSE39366" "GSE65858" "Thurlow"  "TCGA" 
+
+library(survival)
+
+genes=names(sigs)
+accessions.survival=HPV.studies
+
+#Apply cox proportional hazard models to test the association of each prognostic gene score with survival, adjusted for HPV status
+genelist=list()
+for(j in 1:length(genes)){
+gene=genes[j]
+
+coxres=list()
+for(i in 1:length(accessions.survival)){
+acc=accessions.survival[i]
+exp=as.matrix(explist[[acc]])
+info=infolist[[acc]]
+
+if(gene %in% rownames(exp)){
+cox=coxph(Survival_objects[[acc]]~exp[gene,] + info$COV_HNSCC_HPV_status)
+z.exp=as.list(coef(cox)/sqrt(diag(vcov(cox))))[[1]]
+z.HPV=as.list(coef(cox)/sqrt(diag(vcov(cox))))[[2]]
+se.exp=summary(cox)$coefficients[1,3]
+se.HPV=summary(cox)$coefficients[2,3]
+n = cox$n
+df.exp = data.frame(Z = z.exp, SE = se.exp, N = n, DatasetID = acc)
+df.HPV = data.frame(Z = z.HPV, SE = se.HPV, N = n, DatasetID = acc)
+df=list(exp=df.exp, hpv=df.HPV)
+coxres[[acc]]=df
+  }
+}
+genelist[[gene]]=coxres
+}
+
+list.genes.metaframes=lapply(genelist, function(x) as.data.frame(abind::abind(lapply(x, function(y) y$exp), along=1)))
+for(i in 1:length(list.genes.metaframes)){
+  list.genes.metaframes[[i]]$Signature=rep(names(list.genes.metaframes)[i], nrow(list.genes.metaframes[[i]]))
+}
+
+#Use Liptak's weighted meta-Z test to calculate meta-Z scores indicating the associaton of each gene score with survival, adjusted for HPV status 
+metaz.list.exp.adj.HPV=unlist(lapply(list.genes.metaframes,function(mdf)sum(as.numeric(mdf$N)*as.numeric(mdf$Z))/sqrt(sum(as.numeric(mdf$N)^2))))
+list.hpv.metaframes=lapply(genelist, function(x) as.data.frame(abind::abind(lapply(x, function(y) y$hpv), along=1)))
+
+allresults=list(metaframes=list.genes.metaframes, meta.zs=metaz.list.exp.adj.HPV)
+
+saveRDS(allresults, paste0(Resultsdir, "coxph.survival.adj.HPV.updated.11.08.2021.LNM.z.score.rds"))
+
+
+#Make heatmap of z-scores (Supplementary figure 3A)
+list.genes.metaframes=allresults$metaframes
+metaz.list.exp.adj.HPV=allresults$meta.zs
+
+tab=as.data.frame(t(abind::abind(lapply(list.genes.metaframes, function(x) as.numeric(x$Z)), along=2)))
+colnames(tab)=rownames(list.genes.metaframes[[1]])
+tab=tab[9:nrow(tab),]
+
+rownames(tab)=paste0(rownames(tab)," | Meta-Z score: ", round(metaz.list.exp.adj.HPV,2)[9:length(metaz.list.exp.adj.HPV)])
+
+#
+p=ComplexHeatmap::Heatmap(tab, cluster_rows = FALSE, cluster_columns = FALSE, name="Z-score", row_title = "Survival gene signatures", column_title = "Primary HNC patient studies", column_title_side = "bottom")
+library(ComplexHeatmap)
+
+file=paste(Figuresdir, "heatmap_meta_Z_survival_adj_HPV")
+pdf(file=paste0(file,'.pdf',sep=''), height = 4,  width = 6, family = "Helvetica")
+ComplexHeatmap::draw(p, heatmap_legend_side="left", padding = unit(c(2, 2, 2, 20), "mm"))
+dev.off()
+
+
+###########################################################################################
+#Running meta-analysis to test the association of LNM gene signatures with LNM status adjusted for HPV status
+#############################################################################################
+
+#restrict to datasets with >1000 genes 
+gene.n.threshold=1000
+accessions.survival=names(which(lapply(explist, nrow)>=gene.n.threshold))
+explist=explist[accessions.survival]
+
+sigslist=list()
+#
+for(i in 1:length(explist)){
+ exp=explist[[i]]
+ sigdf=as.data.frame(t(abind::abind(lapply(sigs, function(x) scale(colMeans(exp[rownames(exp) %in% x,], na.rm = T))), along=2)))
+ sigslist[[i]]=sigdf
+}
+names(sigslist)=names(explist)
+explist=sigslist
+
+#LNM
+node.list=readRDS(paste(Resultsdir,"Precog.meta.analysis.node.status.all.HNSCC.updated.03.30.2010.rds", sep=""))
+accessions.node=intersect(names(explist), names(node.list$effect.sizes))
+
+numbers.HPV.surv=abind::abind(lapply(infolist, function(x) data.frame(Negative=length(which(x$COV_HNSCC_HPV_status=="negative")), Positive=length(which(x$COV_HNSCC_HPV_status=="positive")))), along=1)
+numbers.HPV.surv=as.data.frame(numbers.HPV.surv)
+HPV.studies=rownames(numbers.HPV.surv[which(numbers.HPV.surv[,1]>=10 & numbers.HPV.surv[,2]>=10),])
+
+accessions.node=intersect(accessions.node, HPV.studies)
+#"GSE33205" "GSE39366" "GSE65858" "Thurlow"  "TCGA"    
+
+#Apply linear regression to test the association of gene prognostic gene score with LNM, adjusted for HPV status
+genelist=list()
+for(j in 1:length(genes)){
+gene=genes[j]
+
+glmres=list()
+for(i in 1:length(accessions.node)){
+acc=accessions.node[i]
+exp=as.matrix(explist[[acc]])
+info=infolist[[acc]]
+
+if(gene %in% rownames(exp)){
+mod=glm(infolist[[acc]]$COVAR_N_status~as.matrix(explist[[acc]])[gene,] + infolist[[acc]]$COV_HNSCC_HPV_status, family = "binomial")
+m=summary(mod)
+z.exp=coef(m)[2,3]
+z.HPV=coef(m)[3,3]
+se.exp=coef(m)[2,2]
+se.HPV=coef(m)[3,2]
+n=stats::nobs(mod)
+df.exp = data.frame(Z = z.exp, SE = se.exp, N = n, DatasetID = acc)
+df.HPV = data.frame(Z = z.HPV, SE = se.HPV, N = n, DatasetID = acc)
+df=list(exp=df.exp, hpv=df.HPV)
+glmres[[acc]]=df
+  }
+}
+genelist[[gene]]=glmres
+}
+
+list.genes.metaframes=lapply(genelist, function(x) as.data.frame(abind::abind(lapply(x, function(y) y$exp), along=1)))
+for(i in 1:length(list.genes.metaframes)){
+  list.genes.metaframes[[i]]$Signature=rep(names(list.genes.metaframes)[i], nrow(list.genes.metaframes[[i]]))
+}
+
+#Use Liptak's weighted meta-Z test to calculate meta-Z scores indicating the associaton of each LNM gene score with LNM, adjusted for HPV status 
+metaz.list.exp.node.adj.HPV=unlist(lapply(list.genes.metaframes,function(mdf)sum(as.numeric(mdf$N)*as.numeric(mdf$Z))/sqrt(sum(as.numeric(mdf$N)^2))))
+list.hpv.node.metaframes=lapply(genelist, function(x) as.data.frame(abind::abind(lapply(x, function(y) y$hpv), along=1)))
+
+allresults=list(metaframes=list.genes.metaframes, meta.zs=metaz.list.exp.node.adj.HPV)
+
+saveRDS(allresults, paste0(Resultsdir, "glm.node.adj.HPV.updated.03.30.2010.rds"))
+
+#Make heatmap of z-scores (Supplementary figure 3B)
+list.genes.metaframes=allresults$metaframes
+metaz.list.exp.node.adj.HPV=allresults$meta.zs
+
+tab=as.data.frame(t(abind::abind(lapply(list.genes.metaframes, function(x) as.numeric(x$Z)), along=2)))
+colnames(tab)=rownames(list.genes.metaframes[[1]])
+rownames(tab)=paste0(rownames(tab)," | Meta-Z score: ", round(metaz.list.exp.node.adj.HPV,2))
+
+library(ComplexHeatmap)
+
+tab=tab[1:8,]
+p=ComplexHeatmap::Heatmap(tab, cluster_rows = FALSE, cluster_columns = FALSE, name="Z-score", row_title = "LNM signatures", column_title = "Primary HNC patient studies", column_title_side = "bottom")
+
+file=paste(Figuresdir, "heatmap_meta_Z_node_LNM_adj_HPV_updated_10082021")
+pdf(file=paste0(file,'.pdf',sep=''), height = 3,  width = 6, family = "Helvetica")
+ComplexHeatmap::draw(p, heatmap_legend_side="left", padding = unit(c(2, 2, 2, 20), "mm"))
+dev.off()
 
 
 
