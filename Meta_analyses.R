@@ -771,8 +771,120 @@ metaz.glm.annot$direction[metaz.glm.annot$metaz.glm<=-3.09]="Anti-grade"
 metaz.glm.annot$direction[metaz.glm.annot$metaz.glm>=3.09]="Pro-grade"
 
 saveRDS(metaz.glm.annot, paste(Resultsdir, "Precog.HNSCC.glm.grade.Liptak.metaz.allHNSCC.rds", sep=""))
-#
 
+##################################
+#Making table of all survival and LNM-associated genes
+#This table will be used in combination with the makesig function (Auxiliary scripts) to conveniently access any subset of prognostic genes 
+####################################
+
+library(HGNChelper)
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+
+RscriptsPath="/Users/kbren/Documents/scripts/rscripts/"
+source(paste0(RscriptsPath, "basic_scripts.R"))
+Meta-Z score
+surv.genes=readRDS(paste0(Resultsdir,"Precog.HNSCC.coxph.Liptak.metaz.allHNSCC.updated.03_30_2020.rds"))
+surv.genes=surv.genes[surv.genes$signficant=="yes",]
+surv.genes$survival.direction=rep(NA, nrow(surv.genes))
+surv.genes$survival.direction[surv.genes$metaz.coxph>0]="Anti-survival"
+surv.genes$survival.direction[surv.genes$metaz.coxph<0]="Pro-survival"
+surv.genes$survival.direction=factor(surv.genes$survival.direction)
+
+surv.genes=surv.genes[,c("gene","hgnc_symbol","metaz.coxph","survival.direction","gene.clust.phenograph")]
+colnames(surv.genes)=c("gene","hgnc_symbol","metaz.coxph", "survival.direction","survival.gene.cluster.phenograph")
+
+node.genes=readRDS(paste0(Resultsdir,"lnm_associated_genes_zscore.rds"))
+node.genes=node.genes[,c("gene","hgnc_symbol","zval","lnm_direction","cluster")] 
+colnames(node.genes)=c("gene","hgnc_symbol","zvalue.lnm", "lnm.direction","lnm.gene.cluster.phenograph")
+
+#combine all genes into one big table
+allgenes=unique(c(surv.genes$gene, node.genes$gene))
+length(allgenes) #1999 genes
+sv2=surv.genes[match(allgenes, surv.genes$gene),]
+lnm2=node.genes[match(allgenes, node.genes$gene),]
+
+allgenes2=cbind(allgenes, sv2, lnm2)
+colnames(allgenes2)
+
+allgenes2=allgenes2[,c("allgenes","metaz.coxph","survival.direction","survival.gene.cluster.phenograph","zvalue.lnm","lnm.direction","lnm.gene.cluster.phenograph")]
+colnames(allgenes2)[1]="gene"
+
+#Annotate genes using biomaRt
+library(biomaRt)
+ensembl=useMart("ensembl", dataset="hsapiens_gene_ensembl")
+
+bm.gene=getBM(attributes=c("hgnc_symbol","entrezgene_id"), filters = "entrezgene_id", values = as.character(allgenes2$allgenes), mart= ensembl)
+bm.gene=bm.gene[match(allgenes2$allgenes, bm.gene$entrezgene_id),]
+allgenes2[,c("hgnc_symbol","entrezgene_id")]=bm.gene[,c("hgnc_symbol","entrezgene_id")]
+dim(allgenes2) #1999 gene
+
+#Further nnotate genes using AnnotationDbi
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+
+allgenes2$symbol_AnnotationDbi=as.character(mapIds(org.Hs.eg.db, keys=allgenes2$gene, column="SYMBOL", keytype="ENTREZID", multiVals="first"))
+
+length(which(is.na(allgenes2$hgnc_symbol))) #23 missing
+length(which(is.na(allgenes2$symbol_AnnotationDbi))) #3 missing
+
+
+#Get names of genes that best match rownames of scRNA-Seq datasets
+int=readRDS(paste0(dir,"Integated_Puram_patients200cells_allwithlnm.rds"))
+ga=as.data.frame(as.matrix(GetAssayData(object = int$RNA)))
+
+genes3=allgenes2$symbol_AnnotationDbi
+#try to match precog genes to Puram genes
+missinggenes=setdiff(genes3, rownames(int$RNA))
+#110 genes
+
+#Use HGNChelper to update gene symbols and help identify genes that do not overlap between lists
+library(HGNChelper)
+#use hynchelper to update names of missing genes
+hg=HGNChelper::checkGeneSymbols(missinggenes, unmapped.as.na=FALSE)
+intersect(hg$Suggested.Symbol, rownames(int$RNA))#change "MPP6"
+#No gene identified by checking gene symbols of missing genes
+
+#check gene symbolds of Puram data and search again
+hg.int=checkGeneSymbols(rownames(int$RNA), unmapped.as.na=FALSE)
+intersect(hg$Suggested.Symbol, hg.int$Suggested.Symbol)
+intersect(missinggenes, hg.int$Suggested.Symbol)
+
+hg.int[hg.int$Suggested.Symbol=="MPP6","x"]
+#convert NEMP1 to TMEM194A in gene list so it matched Puram
+
+change=intersect(missinggenes, hg.int$Suggested.Symbol)
+change=hg.int[hg.int$Suggested.Symbol %in% change,]
+
+allgenes2$Matched_to_Puram=as.character(plyr::mapvalues(as.factor(allgenes2$symbol_AnnotationDbi), from=c(change$Suggested.Symbol), to=c(change$x)))
+allgenes2$Matched_to_Puram=gsub("PALS2", "MPP6", allgenes2$Matched_to_Puram)
+
+#get Stanford scRNA-Seq dataset and add matching column 
+int=readRDS(paste0(dir, "CCSB_scRNASeq_HNSCC_all_enzymatic_intgrated_50PCs.mito.removed.rds"))
+DefaultAssay(int)="RNA"
+
+missinggenes=setdiff(genes3, rownames(int$RNA))
+#137 missing genes
+
+#use hynchelper to update names of missing genes
+hg=HGNChelper::checkGeneSymbols(missinggenes, unmapped.as.na=FALSE)
+intersect(hg$Suggested.Symbol, rownames(int$RNA))#change "C5orf66-AS1" "MPP6" 
+#No gene identified by checking gene symbols of missing genes
+
+#check gene symbolds of Puram data and search again
+hg.int=checkGeneSymbols(rownames(int$RNA), unmapped.as.na=FALSE)
+intersect(hg$Suggested.Symbol, hg.int$Suggested.Symbol)
+intersect(missinggenes, hg.int$Suggested.Symbol)
+
+change=intersect(missinggenes, hg.int$Suggested.Symbol)
+change=hg.int[hg.int$Suggested.Symbol %in% change,]
+
+allgenes2$Matched_to_Stanford=as.character(plyr::mapvalues(as.factor(allgenes2$symbol_AnnotationDbi), from=c(change$Suggested.Symbol), to=c(change$x)))
+
+allgenes2$lnm.gene.cluster.phenograph=plyr::revalue(allgenes2$lnm.gene.cluster.phenograph, c("1"="L1","2"="L2","3"="L3","4"="L4","5"="L5","6"="L6"))
+allgenes2$survival.gene.cluster.phenograph=plyr::revalue(allgenes2$survival.gene.cluster.phenograph, c("1"="S1","2"="S2","3"="S3","4"="S4","5"="S5","6"="S6"))
+
+saveRDS(allgenes2, paste0(Datadir, "all.genes.survival.lnm.101021.rds"))
 
 
 
