@@ -916,5 +916,173 @@ saveRDS(int, paste0(dir, "CCSB_scRNASeq_HNSCC_primary_enzymatic_intgrated_50PCs.
 #This is the integrated object to which all downstream analysis of scRNA-Seq data will be applied
 
 
+############################################################
+############################################################
+#Downloading and processing the Puram scRNA-Seq dataset
+############################################################
+############################################################
+
+library(GEOquery)
+
+gse="GSE103322"
+#Sys.setenv(VROOM_CONNECTION_SIZE=500072)
+getSet=getGEO(gse)
+info=pData(getSet[[1]])
+dat=exprs(getSet[[1]])
+
+#gene expression matrix is in supp files gse="GSE103322"
+cellDir=""
+dir.create(cellDir)
+
+gse="GSE103322"
+filePaths = getGEOSuppFiles(gse, baseDir = cellDir)
+dir=paste0(cellDir, "/","GSE103322","/")
+setwd(dir)
+gunzip("GSE103322_HNSCC_all_data.txt.gz")
+
+library(R.utils)
+gunzip("GSE103322_HNSCC_all_data.txt.gz", remove=FALSE)
+
+supp=read.table(paste0(dir, "GSE103322_HNSCC_all_data.txt"), sep="\t", header=T,  fill=T, quote="", comment.char="")
+rownames(supp)=supp$X
+supp=supp[,2:ncol(supp)]
+
+supp.pheno=supp[1:5,]
+supp.pheno=as.data.frame(t(supp.pheno))
+
+exp=supp[6:nrow(supp),]
+rownames(exp)=gsub("'","",rownames(exp))
+
+##
+supp.pheno=data.frame(ID=rownames(supp.pheno), supp.pheno)
+rownames(supp.pheno)=NULL
+colnames(supp.pheno)=c("ID", "enzyme", "lymph_node", "malignant", "non.malignant", "CellType")
+pheno$sample=gsub("_.*","",supp.pheno$ID)
+
+pheno$sample2=gsub("HN|HNSCC","MEEI", pheno$sample)
+length(levels(as.factor(pheno$sample2)))
+
+dir=""
+info.Puram1=readRDS(paste0(dir, Puram.clinical.info.rds"))
+  
+ap=info.Puram1[,c("COVAR_N_status","COVAR_N","COV_HNSCC_study_grade","Primary_Site_side_omitted","COVAR_sex", "COVAR_age")]
+
+pheno=cbind(pheno, ap[match(pheno$sample2, rownames(ap)),])
+rownames(pheno)=pheno$ID
+
+#remove sample "MEEI" as I can't find clinical data to match this patient. Also very small numbers of cells
+pheno=pheno[pheno$sample2!="MEEI",]
+exp=exp[,match(pheno$ID, colnames(exp))]
+
+patients=levels(as.factor(pheno$sample))
+
+sum=summary(as.factor(pheno$sample))
+#13 patients with over 200 cells 
+
+#How about just primary cells 
+sum2=summary(as.factor(pheno[pheno$lymph_node=="Non-Lymph Node","sample2"]))
+sum2[sum2>200] #9 patients with at least 200 cells in primary tumor 
+
+pat.200=names(sum2[sum2>200])
+
+#################################################
+#Making an integrate object with all samples that have at least 200 cells
+################################################
+
+library(Seurat)
+library(scran)
+
+exobj = CreateSeuratObject(counts = exp, project = "Puram_all_with_ln", min.cells = 10, min.features = 200, meta.data = pheno)
+summary(as.factor(exobj$sample2))
+
+#Restricting to samples with at least 50 cells overall. This excludes MEEI7, which has 7 cells
+patients=names(which(summary(as.factor(exobj$sample2))>=50))
+#
+patientcells=exobj@meta.data[exobj@meta.data$sample2 %in% patients, "ID"]
+exobj=subset(exobj, cells=patientcells)
+
+#Adding supplementary data (Cinical data) to integrated objecy
+supp.match=supp[,match(colnames(exobj), colnames(supp))]
+rownames(supp.match)[1:5]=gsub(" ",".",gsub("  ","",rownames(supp.match)[1:5]))
+
+add.meta=rownames(supp.match)[1:5]
+
+for(i in add.meta){
+  x=as.character(supp.match[i,])
+  exobj@meta.data[,paste0("Puram_supp_", i)]=x
+}
+
+#restrict to primary tumor cells
+exobj.prim=exobj[,exobj$lymph_node=="Non-Lymph Node"]
+#4275 cells
+
+#make integrated object with all patients that have at least 200 cells
+exobj.prim.200=exobj.prim[,exobj.prim$sample2 %in% pat.200]
+#3524 cells
+
+#make integrated object
+patients=levels(as.factor(exobj$sample2))
+exp.list=SplitObject(exobj.prim.200, split.by = "sample2")
+
+for (i in 1:length(exp.list)) {
+    exp.list[[i]] <- NormalizeData(exp.list[[i]], verbose = FALSE)
+    exp.list[[i]] <- FindVariableFeatures(exp.list[[i]], selection.method = "vst", 
+        nfeatures = 2000, verbose = FALSE)
+}
+
+k.filter <- min(200, min(sapply(exp.list, ncol)))
+
+patient.anchors <- FindIntegrationAnchors(object.list = exp.list, k.filter = k.filter)
+
+exp.integrated <- IntegrateData(anchorset = patient.anchors, k.weight=k.filter)
+
+int=exp.integrated
+
+#Making cell type annotation that indicated unclassifed cells (That were not classified either as malignant or non-malignant by Puram et al.)
+int$Puram_supp_unclassified=factor(ifelse(which(pheno$non.malignant=="0" & pheno$malignant=="Non Malignant","1","0"))
+int$cell_type_with_unclassified=factor(ifelse(int$Puram_supp_unclassified==1, "Unclassified", as.character(int$CellType)))
+#
+
+#Running PCA
+all.genes = rownames(int)
+int=ScaleData(int, features = all.genes)
+int=RunPCA(int, npcs=50)
+
+file=paste0(dir, "Elbowplot.integated_Puram_prim_patients200cells")
+png(file=paste(file,'.png',sep=''), units="in", width=6, height=6, res=600)
+ElbowPlot(int)
+dev.off()
+
+#Decided on 20 PCs based on the Elbow plot
+npcs=20
+
+int = FindNeighbors(int, dims = 1:npcs)
+
+####
+int.res.0.3 = FindClusters(int, resolution = 0.3)
+int.res.0.4 = FindClusters(int, resolution = 0.4)
+int.res.0.5 = FindClusters(int, resolution = 0.5)
+int.res.0.6 = FindClusters(int, resolution = 0.6)
+int.res.0.7 = FindClusters(int, resolution = 0.7)
+int.res.0.8 = FindClusters(int, resolution = 0.8)
+int.res.0.9 = FindClusters(int, resolution = 0.9)
+int.res.1 = FindClusters(int, resolution = 1)
+
+#add highres clusters as metadat to Seurat object
+int@meta.data[,"FindClusters.res0.3"]=Idents(int.res.0.3)
+int@meta.data[,"FindClusters.res0.4"]=Idents(int.res.0.4)
+int@meta.data[,"FindClusters.res0.5"]=Idents(int.res.0.5)
+int@meta.data[,"FindClusters.res0.6"]=Idents(int.res.0.6)
+int@meta.data[,"FindClusters.res0.7"]=Idents(int.res.0.7)
+int@meta.data[,"FindClusters.res0.8"]=Idents(int.res.0.8)
+#Names match colnames(patients.integrated$RNA)
+
+#
+library(umap)
+int=RunUMAP(int, dims = 1:npcs)
+
+#save the integrated object
+saveRDS(int, paste0(dir, "Integated_Puram_prim_patients200cells.rds"))
+
 
 
