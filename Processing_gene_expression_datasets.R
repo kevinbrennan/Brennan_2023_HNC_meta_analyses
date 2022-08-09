@@ -231,7 +231,7 @@ assign(paste(gse, "_processed", sep=""), ProcessRawAffyForPrecog(gse, cdf, entre
 
 ############################################
 ####################################
-#Processing datasets that needed to be curated manually 
+#Processing bulk gene expresion datasets that needed to be curated manually 
 ############################################
 ############################################
 
@@ -321,7 +321,7 @@ mas5.ALL2=mas5.ALL2[,colnames(mas5.ALL2) %in% IDs]
 assign(paste(gse, "_processed", sep=""), ProcessRawAffyForPrecogFromQuantialNormalization(mas5.ALL2, gse, entrezIDmap, celdir.output))
 
 ######################################################
-Datasets that require oligo package# 
+#Datasets that require oligo package# 
 #########################################################
 
 gse="GSE95805"
@@ -564,6 +564,97 @@ dat3.z=as.data.frame(t(dat3.z))
 
 saveRDS(dat3.z, paste(celdir.output, "processed_exp_z_scores_", gse, ".rds", sep=""))
 
+########################################################################
+#Processing TCGA HNSC dataset for meta-analyses 
+########################################################################
+
+gse="TCGA"
+
+library(TCGAbiolinks)
+
+query.exp.hg19 <- GDCquery(project = "TCGA-HNSC",
+                           data.category = "Gene expression",
+                          experimental.strategy = "RNA-Seq")
+ 
+sampinfo=getResults(query.exp)
+saveRDS(sampinfo, paste0(dir, "TCGAbiolinks_HNSC_RNASeq.rds"))
+sampinfo=sampinfo[sampinfo$analysis_workflow_type=="HTSeq - Counts",]
+
+#restrict to tumors
+info=clininfo[[which(names(clininfo)==gse)]]
+IDs=info[which(info$COV_HNSCC_tissue_type=="tumor-unspecified"|info$COV_HNSCC_tissue_type=="tumor-primary"),"SAMPLID"]
+exp=exp[,colnames(exp) %in% IDs]
+
+#quantile normalize
+exp.qn=normalize.quantiles(as.matrix(exp))
+dimnames(exp.qn)=dimnames(exp)
+
+dat=exp.qn
+#Annotate with entrez IDs
+library(biomaRt)
+ensembl=useMart("ensembl", dataset="hsapiens_gene_ensembl")
+genes=gsub("[.].*","", rownames(dat))
+
+#trying to cnver to gene names uing pd.hta.2.0 then biomaRT
+eids=getBM(attributes = c("ensembl_gene_id","entrezgene_id"), filters = "ensembl_gene_id", values = genes, mart = ensembl)
+
+genedf=data.frame(probe=rownames(dat), gene=genes)
+eids2=eids[match(genedf$gene, eids$ensembl_gene_id),]
+genedf$entrezgene_id=as.character(eids2$entrezgene_id)
+
+collapserows.annot=data.frame(probe=genedf$probe, gene=genedf$entrezgene_id)
+collapserows.annot=na.omit(collapserows.annot)
+
+library(WGCNA)
+collapse=collapseRows(datET=dat, rowGroup=collapserows.annot$gene, rowID=collapserows.annot$probe)
+expdata.c=collapse$datETcollapsed
+
+dat3.clog2=log2(expdata.c)
+saveRDS(dat3.clog2, paste(celdir.output,"log2/", "processed_exp_log2_", gse, ".rds", sep=""))
+
+#Now z-score the genes
+dat3.z=apply(dat3.clog2, 1, function(x)  (x-mean(x))/sd(x))
+dat3.z=as.data.frame(t(dat3.z))
+
+saveRDS(dat3.z, paste(celdir.output, "processed_exp_z_scores_", gse, ".rds", sep=""))
+
+########################################################################
+#Processing TCGA HNSC dataset for analysis other than meta-analyses 
+########################################################################
+
+sampinfo=readRDS(paste0(dir, "TCGAbiolinks_HNSC_RNASeq.rds"))
+sampinfo=sampinfo[sampinfo$analysis_workflow_type=="HTSeq - Counts",]
+
+plate=factor(substr(colnames(counts),22,25))
+#20 levels of plate variable. Using this to perform batch effect
+
+library(SNFtool)
+data=standardNormalization(counts)
+data=log2(data + 1)
+dat = ComBat(dat=data, batch=plate, mod=NULL, par.prior=TRUE, prior.plots=FALSE)
+
+#Annotate with entrez IDs
+library(biomaRt)
+ensembl=useMart("ensembl", dataset="hsapiens_gene_ensembl")
+
+genes=gsub("[.].*","", rownames(dat))
+
+#trying to cnver to gene names uing pd.hta.2.0 then biomaRT
+eids=getBM(attributes = c("ensembl_gene_id","entrezgene_id"), filters = "ensembl_gene_id", values = genes, mart = ensembl)
+
+genedf=data.frame(probe=rownames(dat), gene=genes)
+eids2=eids[match(genedf$gene, eids$ensembl_gene_id),]
+genedf$entrezgene_id=as.character(eids2$entrezgene_id)
+
+collapserows.annot=data.frame(probe=genedf$probe, gene=genedf$entrezgene_id)
+collapserows.annot=na.omit(collapserows.annot)
+
+library(WGCNA)
+collapse=collapseRows(datET=dat, rowGroup=collapserows.annot$gene, rowID=collapserows.annot$probe)
+dat2=collapse$datETcollapsed
+
+saveRDS(dat2, paste0(dir, "TCGA_HNSC_Gencode32_tximport_counts_Combat_entrezid.rds"))
+
 ######################################################
 ###################################################
 #make single large list of gene expression datasets with matched clinical datasets, to which meta-analyses can easily be applied 
@@ -594,12 +685,6 @@ names(exp.list.nonaffy)=accessions.nonaffy.processed
 
 exp.list.combined=c(exp.list.affy, exp.list.nonaffy)
 #30 datasets 
-
-#add Previously processed TCGA data 
-expression.all.datasets.zscores.updated=readRDS(paste(Datadirexp, "expression.all.datasets.zscores.updated.rds", sep=""))
-exp.list.combined[["TCGA"]]=expression.all.datasets.zscores.updated$TCGA
-#Also missing GSE23558, which is the last datset I proessed
-exp.list.combined[["GSE23558"]]=expression.all.datasets.zscores.updated$GSE23558
 
 zscores.list=exp.list.combined
 clininfolist=readRDS(paste(Datadirclin, "Precog.HNSCC.clinical.data.list.all.samples.rds", sep=""))

@@ -214,6 +214,65 @@ return(sigs)
 }
 
 
+#Function to test the association of gene signatures (Response variable) with a continuous predictor variable (Such as tumor grade) using generalized linear models
+glm.apply.provide.genesig=function(signame, varfactor, genesetname){
+  library(survival)
+  library(abind)
+  
+  out <- tryCatch(
+  {
+glm=summary(glm(exp[signame,]~as.numeric(info[,varfactor])))
+
+z = coef(glm)[6]
+se = coef(glm)[4]
+n = length(na.omit(info[,varfactor]))
+p=coef(glm)[8]
+gs=genesetname
+df = data.frame(Z = z, SE = se, N = n, DatasetID = gs, P=p)
+  },
+   error=function(cond) {
+        message("Here's the original error message:")
+            message(cond)
+                 return(NA)
+   }, 
+   warning=function(cond) {
+       message("Here's the original warning message:")
+            message(cond)
+                 return(df)
+   }
+)
+return(out)  
+}
+
+
+library(abind)
+library(metafor)
+
+#Function to combine z-scores yielded by function glm.apply.provide.genesig. Performs meta-analysis to test the association of gene signature with a continuous variable (Such as grade)
+make.meta.glm=function(glmlist, glmlistname){
+allglm.abind=abind(glmlist, along=1)
+
+allglm.abind=as.data.frame(abind(glmlist, along=1))
+rownames(allglm.abind)=NULL
+allglm.abind$Z=as.numeric(as.character(allglm.abind$Z))
+allglm.abind$N=as.numeric(as.character(allglm.abind$N))
+
+#Using Liptak's weighted meta-Z test to calclate meta-Z scores (Indicating the association of LNM signatures with grade across studies)
+metaz=sum(allglm.abind$N*allglm.abind$Z)/sqrt(sum(allglm.abind$N^2))
+
+#apply metfor and make forest plot
+d=as.numeric(allglm.abind$Z)
+se=as.numeric(as.character(allglm.abind$SE))
+names1=as.character(allglm.abind$DatasetID)
+g=metafor::rma(d, sei=se, data=allglm.abind)
+
+res=list(allglm.abind, metaz, g, forestplot)
+names(res)=c("glm.table","meta.Z","rma_results","forestplot")
+
+return(res)
+}
+
+
 #########################################################
 ##########################################################
 #Meta-analysis of survival associated genes 
@@ -1128,6 +1187,296 @@ pdf(file=paste0(file,'.pdf',sep=''), height = 3,  width = 6, family = "Helvetica
 ComplexHeatmap::draw(p, heatmap_legend_side="left", padding = unit(c(2, 2, 2, 20), "mm"))
 dev.off()
 
+##################################################
+###############################################
+#Meta-analysis to test the association of LNM gene signatures with grade (Shown in heatmap in figure 2)
+###############################################
+####################################################
+
+#Get gene expression data and clinical data (With grade curated in column "COV_HNSCC_study_grade")
+alldata3=readRDS(paste0(dir, "Precog.HNSCC.all.sig.exp.clin.data.rds"))
+
+infolist=alldata3$infolist
+siglist=alldata3$sigslist
+all(names(infolist)==names(siglist)) #TRUE
+
+#get study grade/level of differentiation
+varfactor="COV_HNSCC_study_grade"
+
+#Restrict to studies with grade data
+accessions.grade=names(which(unlist(lapply(infolist, function(x) !all(is.na(x[,varfactor]))))))
+
+infolist.grade=infolist[accessions.grade]
+explist.grade=siglist[accessions.grade]
+
+
+#Test association of signatures with grade in each study separately 
+sigs=rownames(explist.grade[[1]])
+#Remove study with an insufficient number of genes 
+accessions.grade=setdiff(accessions.grade, "GSE686")
+
+var="COV_HNSCC_study_grade"
+
+glmlists=list()
+
+for(j in 1:length(sigs)){
+
+sig=sigs[[j]]
+glmlist=list()
+
+for(i in 1:length(accessions.grade)){
+acc=accessions.grade[i]
+info=infolist.grade[[acc]]
+exp=as.matrix(explist.grade[[acc]])
+
+glmlist[[acc]]=glm.apply.provide.genesig(sig, var, acc)
+}
+
+glmlists[[j]]=glmlist
+}
+names(glmlists)=names(sigs)
+
+#Next run meta-analysis using output of glm models perfromed for each study seperately
+meta.analysis.signatures.grade=lapply(1:length(glmlists), function(x) make.meta.glm(glmlists[[x]], names(glmlists)[x]))
+names(meta.analysis.signatures.grade)=names(glmlists)
+
+g=meta.analysis.signatures.grade$node_status_down$rma_results
+allglm.abind=meta.analysis.signatures.grade$node_status_down$glm.table
+
+metasigs=meta.analysis.signatures.grade
+
+pvals=unlist(lapply(metasigs, function(x) x$rma_results$pval))
+pvals2=pvalr(unlist(lapply(metasigs, function(x) x$rma_results$pval)))
+metazs=unlist(lapply(1:length(metasigs), function(x) round(metasigs[[x]]$meta.Z,2)))
+
+#Make heatmap of z-scores showing the association of all LNM signatures with grade in studies with grade data (Included in figure 2)
+genes=names(pvals2)
+studies=accessions.grade
+
+zarray=abind::abind(lapply(glmlists, function(x) as.numeric(as.character(as.data.frame(abind(x, along=1))[,"Z"]))), along=2)
+rownames(zarray)=studies
+colnames(zarray)=sigs
+zarray=t(zarray)
+
+results=list(meta=meta.analysis.signatures.grade, zarray=zarray, glmlists=glmlists)
+saveRDS(results, paste0(Resultsdir, "meta.analysis.signatures.grade.rds"))
+
+rownames(zarray)=paste0(rownames(zarray)," | Meta-Z score: ", metazs)
+
+library(ComplexHeatmap)
+
+#Add dotplot indicating meta-Z scores
+meta.analysis.signatures.grade=results$meta
+metasigs=meta.analysis.signatures.grade
+metazs=unlist(lapply(1:length(metasigs), function(x) round(metasigs[[x]]$meta.Z,2)))
+
+#Getting manually curated clinical data table that indicates the author labels associated with each study
+studymeta=readRDS(paste0(Datadir, "table_1_adding_authors_OPH_HPV_info.rds"))
+studymeta=studymeta[match(colnames(zarray), studymeta$Study.accession),]
+
+colnames(zarray)=studymeta$Study_label_author
+
+ha2=rowAnnotation(`Meta-z`=anno_points(metazs[1:8],ylim=c(-15,15), axis_param = list(at = c(-10,-3.09, 0, 3.09,10))), width=unit(25,"mm"))
+p=ComplexHeatmap::Heatmap(zarray[1:8,], cluster_rows = F, cluster_columns = F,  name="Z-score", row_title = "Prognostic signatures", column_title = "Primary HNC patient studies", column_title_side = "bottom", show_row_names = T,  heatmap_legend_param = list(legend_direction="horizontal"), right_annotation = ha2)
+
+cn = colnames(zarray)
+p=ComplexHeatmap::Heatmap(zarray[1:8,], show_column_names = FALSE, cluster_rows = F, cluster_columns = F,  name="Z-score", row_title = "LNM gene signatures", column_title = "HNC patient studies", column_title_side = "bottom", show_row_names = T,  heatmap_legend_param = list(legend_direction="horizontal"), right_annotation = ha2,     bottom_annotation = HeatmapAnnotation(
+        text = anno_text(cn, rot = 45, location = unit(1, "npc"), just = "right")
+    )
+)
+
+file=paste0(Figuresdir, "Heatmap_PRECOG_signatures_grade_just_LNM_updated_10092021_metaz_dotplot")
+pdf(file=paste(file,'.pdf',sep=''), height = 4,  width = 6, family = "Helvetica")
+draw(p, heatmap_legend_side = "top")
+dev.off()
+
+
+########################################################################################
+########################################################################################
+#Use generalized linear models to test the association of anti-LNM cluster 1 with pro-LNM cluster 4 within each gene expression study
+#Illustrated by the heatmpa shown in Supplementary figure 15
+########################################################################################
+########################################################################################
+
+#Retrieve prognostic gene signatures (sets of prognostic genes) from the dataframe that stores these genes
+sigs=
+c(makesig(genetype="gene",group="lnm.direction"),
+makesig(genetype="gene",group="lnm.gene.cluster.phenograph"),
+makesig(genetype="gene",group="survival.direction"),
+makesig(genetype="gene",group="survival.gene.cluster.phenograph"))
+
+clusts.entrez=list(L1=sigs$L1, L4=sigs$L4)
+
+#Getting gene expression and clinical datasets
+alldata=readRDS(paste0(dir, "Precog.HNSCC.all.exp.clin.data.rds"))
+explist=alldata$explist
+#Removing studies with an insufficient number of genes to calculate expression scores that are representative of the gene signatures
+explist=explist[setdiff(names(explist), c("GSE6631", "GSE686"))]
+zscores.list=explist
+
+#restrict to studies with at least 20 samples
+ns=unlist(lapply(zscores.list, ncol))
+studies=names(ns[ns>=20])
+
+zscores.list=zscores.list[studies]
+
+#Use generalized linear models to test the association of anti-LNM cluster 1 with pro-LNM cluster 4 within each gene expression study
+glm.list=list()
+for(j in 1:length(studies)){
+study=studies[j]
+exp=zscores.list[[study]]
+gl=summary(glm(colMeans(exp[rownames(exp) %in% clusts.entrez$L1,], na.rm=T)~colMeans(exp[rownames(exp) %in% clusts.entrez$L4,], na.rm=T)))
+
+z = coef(gl)[6]
+se = coef(gl)[4]
+p=coef(gl)[8]
+gs=study
+n = ncol(exp)
+df = data.frame(Z = z, SE = se, N = n, DatasetID = gs, P=p)
+glm.list[[study]]=df
+}
+allglm.abind=as.data.frame(abind::abind(glm.list, along=1))
+allglm.abind$N=as.numeric(allglm.abind$N)
+allglm.abind$Z=as.numeric(allglm.abind$Z)
+metaz=sum(allglm.abind$N*allglm.abind$Z)/sqrt(sum(allglm.abind$N^2)) #-22.31002
+
+saveRDS(allglm.abind, paste0(Resultsdir, "Zscores.table.L1VsL4.rds"))
+
+#Make heatmap of z-scores 
+zarray=data.frame(`Z-score`=allglm.abind$Z)
+rownames(zarray)=allglm.abind$DatasetID
+
+#Retrieving manually curated table indicating the names of authors associated with each study accession 
+studymeta=readRDS(paste0(Datadir, "table_1_adding_authors_OPH_HPV_info.rds"))
+studymeta=studymeta[match(rownames(zarray), studymeta$Study.accession),]
+rownames(zarray)=studymeta$Study_label_author
+
+ha2=rowAnnotation(`Meta-z`=anno_points(metazs[1:8],ylim=c(-15,15), axis_param = list(at = c(-10,-3.09, 0, 3.09,10))), width=unit(25,"mm"))
+
+col_fun = circlize::colorRamp2(c(min(zarray$Z.score), 0, max(zarray$Z.score)), c("blue", "white", "red"))
+
+library(ComplexHeatmap)
+
+colnames(zarray)=""
+
+zarray=t(zarray)
+
+cn = colnames(zarray)
+colnames(zarray)=NULL
+p=ComplexHeatmap::Heatmap(zarray, cluster_rows = F, cluster_columns = F,  name="Z-score", col=col_fun, column_title = "HNC patient study", row_title = "Z-score",
+bottom_annotation = HeatmapAnnotation(
+        text = anno_text(cn, rot = 45, location = unit(1, "npc"), just = "right")))
+
+file=paste0(Figuresdir, "Heatmap_L1_vs_L4")
+pdf(file=paste(file,'.pdf',sep=''), height = 2.5,  width = 6, family = "Helvetica")
+ComplexHeatmap::draw(p, heatmap_legend_side = "right")
+dev.off()
+
+########################################
+########################################
+#For all prognostic genes, find the cell type that has the highest level of expression within the Stanford and Puram scRNA-Seq datasets, as well as the Stanford bulk RNA-Seq dataset
+#Code used to process these datasets are included in the 'Processing_gene_expression_datasets.R' script
+########################################
+########################################
+
+#Add mean levels of genes within each cell type to our prognostic gene table
+allgenes2=readRDS(paste0(Datadir, "all.genes.survival.lnm.101021.rds"))
+fm=allgenes2
+
+library(Seurat)
+celltypes=c("B.cell", "Endothelial", "Fibroblast", "Malignant", "Mast", "Myeloid", "T.cell.or.NK.cell")
+
+#Adding cell type with highest expression of each prognostic gene within the Puram scRNA-Seq dataset
+int=readRDS(paste0(dir, "Integated_Puram_prim_patients200cells.rds"))
+DefaultAssay(int)="RNA"
+
+#Remove unclassified cells and (Putative) myocytes
+keep=colnames(int[,int$cell.type.collapsed!="Unclassified" & int$cell.type.collapsed!="myocyte"])
+int=subset(int, cells=keep)
+
+#Get normalized counts
+ga=int@assays$RNA@data #normalizard counts
+genes=fm$Matched_to_Puram[fm$Matched_to_Puram %in% rownames(ga)]
+ga=ga[genes,]
+
+#Make table with mean expression of each prognostic genes within each cell type
+meantab=apply(ga, 1, function(x) aggregate(x~int$cell.type.collapsed, FUN=mean)[,2])
+meantab=as.data.frame(t(meantab))
+colnames(meantab)=celltypes
+
+meantab=meantab[match(fm$Matched_to_Puram, rownames(meantab)),]
+meantab.celltype.Puram=meantab
+
+fm[,paste0("Puram_mean_normalized_counts_", colnames(meantab))]=meantab
+cols=paste0("Puram_mean_normalized_counts_", colnames(meantab))
+
+#Get cell type with max expression of each prognostic gene
+fm$Max_celltype_normalized_counts_Puram=apply(fm[,cols],1, function(x) celltypes[which.max(x)])
+fm$Max_celltype_normalized_counts_Puram=as.character(fm$Max_celltype_normalized_counts_Puram)
+fm$Max_celltype_normalized_counts_Puram=plyr::revalue(as.factor(fm$Max_celltype_normalized_counts_Puram), c("character(0)"=NA))
+
+#Adding cell type with highest expression of each prognostic gene within the Stanford scRNA-Seq dataset
+
+int=readRDS(paste0(DatadirCCSBSc, "CCSB_scRNASeq_HNSCC_primary_enzymatic_intgrated_50PCs.mito.removed.rds"))
+DefaultAssay(int)="RNA"
+
+keep=colnames(int[,int$celltype!="Unclassified"])
+int=subset(int, cells=keep)
+
+#Matching cell type factor order to Puram dataset
+int$cell.type.collapsed=factor(int$cell.type.collapsed, levels=c("B cell","Endothelial","Fibroblast","Malignant","Mast", "Myeloid","T cell or NK cell"))
+
+ga=int@assays$RNA@data #normalizard counts
+genes=fm$Matched_to_Stanford[fm$Matched_to_Stanford %in% rownames(ga)]
+ga=ga[genes,]
+
+meantab=apply(ga, 1, function(x) aggregate(x~int$cell.type.collapsed, FUN=mean)[,2])
+meantab=as.data.frame(t(meantab))
+colnames(meantab)=celltypes
+
+#Add mean levels of prognostic genes within each cell type
+meantab=meantab[match(fm$Matched_to_Stanford, rownames(meantab)),]
+meantab.celltype.Stanford=meantab
+
+#save mean normalized counts per cell matrices for Puram and Stanford datasets
+meantabs=list(celltype.Puram=meantab.celltype.Puram, celltype.Stanford=meantab.celltype.Stanford)
+saveRDS(meantabs, paste0(Datadir, "matrices.mean.normalized.counts.rds"))
+
+#Add cell type with the highest normalized counts
+cols=paste0("Stanford_mean_normalized_counts_", colnames(meantab))
+fm$Max_celltype_normalized_counts_Stanford=apply(fm[,cols],1, function(x) celltypes[which.max(x)])
+fm$Max_celltype_normalized_counts_Stanford=as.character(fm$Max_celltype_normalized_counts_Stanford)
+fm$Max_celltype_normalized_counts_Stanford=plyr::revalue(as.factor(fm$Max_celltype_normalized_counts_Stanford), c("character(0)"=NA))
+
+#Adding cell type with highest normalized counts from the Stanford bulk RNA-Seq dataset 
+
+#Get normalized counts
+cb=readRDS(paste0(DatadirU54Bulk, "U54.normalized.counts.allsamples.gene.names.rds"))
+sampleTable=readRDS(paste0(DatadirU54Bulk, "U54_data_clinical_formatted_all.rds"))
+
+cb=cb[,match(rownames(sampleTable), colnames(cb))]
+cb=cb[rownames(cb) %in% fm$symbol_AnnotationDbi,]
+
+#Get mean expression levels of each prognostic gene within each of the four cell types (Malignant, leukocyte, fibroblast, endothelial cell)
+meantab=apply(cb, 1, function(x) aggregate(x~sampleTable$sample_type, FUN=mean)[,2])
+celltypes=c("Endothelial","Fibroblast","Leukocyte","Malignant")
+meantab=as.data.frame(t(meantab))
+colnames(meantab)=celltypes
+
+meantab=meantab[match(fm$symbol_AnnotationDbi, rownames(meantab)),]
+
+#add mean expression level of each prognostic gene within each cell type to prognostic gene table
+fm[,paste0("Stanford_mean_normalized_counts_bulk_", colnames(meantab))]=meantab
+
+celltypes=c("Endothelial","Fibroblast","Leukocyte","Malignant")
+
+#Make column indicating the cell type with the highest mean normalized counts for each prognostic gene
+cols=paste0("Stanford_mean_normalized_counts_bulk_", colnames(meantab))
+fm$Max_celltype_normalized_counts_bulk=apply(fm[,cols],1, function(x) celltypes[which.max(x)])
+fm$Max_celltype_normalized_counts_bulk=as.character(fm$Max_celltype_normalized_counts_bulk)
+fm$Max_celltype_normalized_counts_bulk=plyr::revalue(as.factor(fm$Max_celltype_normalized_counts_bulk), c("character(0)"=NA))
+
+saveRDS(fm, paste0(Datadir, "all.genes.survival.lnm.101021.rds"))
 
 
 
