@@ -231,7 +231,7 @@ assign(paste(gse, "_processed", sep=""), ProcessRawAffyForPrecog(gse, cdf, entre
 
 ############################################
 ####################################
-#Processing bulk gene expresion datasets that needed to be curated manually 
+#Processing datasets that needed to be curated manually 
 ############################################
 ############################################
 
@@ -321,7 +321,7 @@ mas5.ALL2=mas5.ALL2[,colnames(mas5.ALL2) %in% IDs]
 assign(paste(gse, "_processed", sep=""), ProcessRawAffyForPrecogFromQuantialNormalization(mas5.ALL2, gse, entrezIDmap, celdir.output))
 
 ######################################################
-#Datasets that require oligo package# 
+Datasets that require oligo package# 
 #########################################################
 
 gse="GSE95805"
@@ -564,97 +564,6 @@ dat3.z=as.data.frame(t(dat3.z))
 
 saveRDS(dat3.z, paste(celdir.output, "processed_exp_z_scores_", gse, ".rds", sep=""))
 
-########################################################################
-#Processing TCGA HNSC dataset for meta-analyses 
-########################################################################
-
-gse="TCGA"
-
-library(TCGAbiolinks)
-
-query.exp.hg19 <- GDCquery(project = "TCGA-HNSC",
-                           data.category = "Gene expression",
-                          experimental.strategy = "RNA-Seq")
- 
-sampinfo=getResults(query.exp)
-saveRDS(sampinfo, paste0(dir, "TCGAbiolinks_HNSC_RNASeq.rds"))
-sampinfo=sampinfo[sampinfo$analysis_workflow_type=="HTSeq - Counts",]
-
-#restrict to tumors
-info=clininfo[[which(names(clininfo)==gse)]]
-IDs=info[which(info$COV_HNSCC_tissue_type=="tumor-unspecified"|info$COV_HNSCC_tissue_type=="tumor-primary"),"SAMPLID"]
-exp=exp[,colnames(exp) %in% IDs]
-
-#quantile normalize
-exp.qn=normalize.quantiles(as.matrix(exp))
-dimnames(exp.qn)=dimnames(exp)
-
-dat=exp.qn
-#Annotate with entrez IDs
-library(biomaRt)
-ensembl=useMart("ensembl", dataset="hsapiens_gene_ensembl")
-genes=gsub("[.].*","", rownames(dat))
-
-#trying to cnver to gene names uing pd.hta.2.0 then biomaRT
-eids=getBM(attributes = c("ensembl_gene_id","entrezgene_id"), filters = "ensembl_gene_id", values = genes, mart = ensembl)
-
-genedf=data.frame(probe=rownames(dat), gene=genes)
-eids2=eids[match(genedf$gene, eids$ensembl_gene_id),]
-genedf$entrezgene_id=as.character(eids2$entrezgene_id)
-
-collapserows.annot=data.frame(probe=genedf$probe, gene=genedf$entrezgene_id)
-collapserows.annot=na.omit(collapserows.annot)
-
-library(WGCNA)
-collapse=collapseRows(datET=dat, rowGroup=collapserows.annot$gene, rowID=collapserows.annot$probe)
-expdata.c=collapse$datETcollapsed
-
-dat3.clog2=log2(expdata.c)
-saveRDS(dat3.clog2, paste(celdir.output,"log2/", "processed_exp_log2_", gse, ".rds", sep=""))
-
-#Now z-score the genes
-dat3.z=apply(dat3.clog2, 1, function(x)  (x-mean(x))/sd(x))
-dat3.z=as.data.frame(t(dat3.z))
-
-saveRDS(dat3.z, paste(celdir.output, "processed_exp_z_scores_", gse, ".rds", sep=""))
-
-########################################################################
-#Processing TCGA HNSC dataset for analysis other than meta-analyses 
-########################################################################
-
-sampinfo=readRDS(paste0(dir, "TCGAbiolinks_HNSC_RNASeq.rds"))
-sampinfo=sampinfo[sampinfo$analysis_workflow_type=="HTSeq - Counts",]
-
-plate=factor(substr(colnames(counts),22,25))
-#20 levels of plate variable. Using this to perform batch effect
-
-library(SNFtool)
-data=standardNormalization(counts)
-data=log2(data + 1)
-dat = ComBat(dat=data, batch=plate, mod=NULL, par.prior=TRUE, prior.plots=FALSE)
-
-#Annotate with entrez IDs
-library(biomaRt)
-ensembl=useMart("ensembl", dataset="hsapiens_gene_ensembl")
-
-genes=gsub("[.].*","", rownames(dat))
-
-#trying to cnver to gene names uing pd.hta.2.0 then biomaRT
-eids=getBM(attributes = c("ensembl_gene_id","entrezgene_id"), filters = "ensembl_gene_id", values = genes, mart = ensembl)
-
-genedf=data.frame(probe=rownames(dat), gene=genes)
-eids2=eids[match(genedf$gene, eids$ensembl_gene_id),]
-genedf$entrezgene_id=as.character(eids2$entrezgene_id)
-
-collapserows.annot=data.frame(probe=genedf$probe, gene=genedf$entrezgene_id)
-collapserows.annot=na.omit(collapserows.annot)
-
-library(WGCNA)
-collapse=collapseRows(datET=dat, rowGroup=collapserows.annot$gene, rowID=collapserows.annot$probe)
-dat2=collapse$datETcollapsed
-
-saveRDS(dat2, paste0(dir, "TCGA_HNSC_Gencode32_tximport_counts_Combat_entrezid.rds"))
-
 ######################################################
 ###################################################
 #make single large list of gene expression datasets with matched clinical datasets, to which meta-analyses can easily be applied 
@@ -685,6 +594,12 @@ names(exp.list.nonaffy)=accessions.nonaffy.processed
 
 exp.list.combined=c(exp.list.affy, exp.list.nonaffy)
 #30 datasets 
+
+#add Previously processed TCGA data 
+expression.all.datasets.zscores.updated=readRDS(paste(Datadirexp, "expression.all.datasets.zscores.updated.rds", sep=""))
+exp.list.combined[["TCGA"]]=expression.all.datasets.zscores.updated$TCGA
+#Also missing GSE23558, which is the last datset I proessed
+exp.list.combined[["GSE23558"]]=expression.all.datasets.zscores.updated$GSE23558
 
 zscores.list=exp.list.combined
 clininfolist=readRDS(paste(Datadirclin, "Precog.HNSCC.clinical.data.list.all.samples.rds", sep=""))
@@ -983,7 +898,7 @@ epi=subset(intfull, cells=cells)
 cd /home/kbren/python3-virtual-environments
 source env/bin/activate
 
-R 
+R
 
 Sys.setenv(RETICULATE_PYTHON="/home/kbren/python3-virtual-environments")
 library(CytoTRACE)
@@ -1000,247 +915,407 @@ int@meta.data$CytoTRACE.epithelial=CytoTRACE[match(colnames(int), names(CytoTRAC
 saveRDS(int, paste0(dir, "CCSB_scRNASeq_HNSCC_primary_enzymatic_intgrated_50PCs.rds"))
 #This is the integrated object to which all downstream analysis of scRNA-Seq data will be applied
 
+########################################################################################################
+########################################################################################################
+#Adding prognostic and other gene signatures and cell features to the scRNA-Seq datasets
+########################################################################################################
+########################################################################################################
 
-############################################################
-############################################################
-#Downloading and processing the Puram scRNA-Seq dataset
-############################################################
-############################################################
+##########################################################################################################################
+#Add signatures to Puram primary tumors 
+##########################################################################################################################
 
-library(GEOquery)
+#int=readRDS(paste0(DatadirPuram, "Integated_Puram_prim_patients200cells.rds"))
+DefaultAssay(int)="RNA"
+#21499  3524
 
-gse="GSE103322"
-#Sys.setenv(VROOM_CONNECTION_SIZE=500072)
-getSet=getGEO(gse)
-info=pData(getSet[[1]])
-dat=exprs(getSet[[1]])
+ga=GetAssayData(object = int)
+ga=as.matrix(ga)
 
-#gene expression matrix is in supp files gse="GSE103322"
-cellDir=""
-dir.create(cellDir)
+fm=readRDS(paste0(Datadir, "Findmarkers_Puram_U54_allcombined.update.061323.rds"))
 
-gse="GSE103322"
-filePaths = getGEOSuppFiles(gse, baseDir = cellDir)
-dir=paste0(cellDir, "/","GSE103322","/")
-setwd(dir)
-gunzip("GSE103322_HNSCC_all_data.txt.gz")
-
-library(R.utils)
-gunzip("GSE103322_HNSCC_all_data.txt.gz", remove=FALSE)
-
-supp=read.table(paste0(dir, "GSE103322_HNSCC_all_data.txt"), sep="\t", header=T,  fill=T, quote="", comment.char="")
-rownames(supp)=supp$X
-supp=supp[,2:ncol(supp)]
-
-supp.pheno=supp[1:5,]
-supp.pheno=as.data.frame(t(supp.pheno))
-
-exp=supp[6:nrow(supp),]
-rownames(exp)=gsub("'","",rownames(exp))
-
-##
-supp.pheno=data.frame(ID=rownames(supp.pheno), supp.pheno)
-rownames(supp.pheno)=NULL
-colnames(supp.pheno)=c("ID", "enzyme", "lymph_node", "malignant", "non.malignant", "CellType")
-pheno$sample=gsub("_.*","",supp.pheno$ID)
-
-pheno$sample2=gsub("HN|HNSCC","MEEI", pheno$sample)
-length(levels(as.factor(pheno$sample2)))
-
-dir=""
-info.Puram1=readRDS(paste0(dir, Puram.clinical.info.rds"))
-  
-ap=info.Puram1[,c("COVAR_N_status","COVAR_N","COV_HNSCC_study_grade","Primary_Site_side_omitted","COVAR_sex", "COVAR_age")]
-
-pheno=cbind(pheno, ap[match(pheno$sample2, rownames(ap)),])
-rownames(pheno)=pheno$ID
-
-#remove sample "MEEI" as I can't find clinical data to match this patient. Also very small numbers of cells
-pheno=pheno[pheno$sample2!="MEEI",]
-exp=exp[,match(pheno$ID, colnames(exp))]
-
-patients=levels(as.factor(pheno$sample))
-
-sum=summary(as.factor(pheno$sample))
-#13 patients with over 200 cells 
-
-#How about just primary cells 
-sum2=summary(as.factor(pheno[pheno$lymph_node=="Non-Lymph Node","sample2"]))
-sum2[sum2>200] #9 patients with at least 200 cells in primary tumor 
-
-pat.200=names(sum2[sum2>200])
-
-#################################################
-#Making an integrate object with all samples that have at least 200 cells
-################################################
-
-library(Seurat)
-library(scran)
-
-exobj = CreateSeuratObject(counts = exp, project = "Puram_all_with_ln", min.cells = 10, min.features = 200, meta.data = pheno)
-summary(as.factor(exobj$sample2))
-
-#Restricting to samples with at least 50 cells overall. This excludes MEEI7, which has 7 cells
-patients=names(which(summary(as.factor(exobj$sample2))>=50))
-#
-patientcells=exobj@meta.data[exobj@meta.data$sample2 %in% patients, "ID"]
-exobj=subset(exobj, cells=patientcells)
-
-#Adding supplementary data (Cinical data) to integrated objecy
-supp.match=supp[,match(colnames(exobj), colnames(supp))]
-rownames(supp.match)[1:5]=gsub(" ",".",gsub("  ","",rownames(supp.match)[1:5]))
-
-add.meta=rownames(supp.match)[1:5]
-
-for(i in add.meta){
-  x=as.character(supp.match[i,])
-  exobj@meta.data[,paste0("Puram_supp_", i)]=x
+makesig=function(genetype, group){
+  levs=levels(fm[,group])
+  sigs=lapply(levs, function(lev) 
+  {x=fm[fm[,group]==lev,genetype]
+  x=x[!is.na(x)]
+  return(x)})
+  names(sigs)=levs
+  return(sigs)
 }
 
-#restrict to primary tumor cells
-exobj.prim=exobj[,exobj$lymph_node=="Non-Lymph Node"]
-#4275 cells
+#Add signatures to integrated object
+sigs=c(makesig(genetype="Matched_to_Puram",group="lnm.direction"),
+       makesig(genetype="Matched_to_Puram",group="lnm.gene.cluster.phenograph"),
+       makesig(genetype="Matched_to_Puram",group="survival.direction"),
+       makesig(genetype="Matched_to_Puram",group="survival.gene.cluster.phenograph"))
 
-#make integrated object with all patients that have at least 200 cells
-exobj.prim.200=exobj.prim[,exobj.prim$sample2 %in% pat.200]
-#3524 cells
+cellsigs=sigs
+cellsigs=lapply(cellsigs, function(x) x[x %in% rownames(int)])
 
-#make integrated object
-patients=levels(as.factor(exobj$sample2))
-exp.list=SplitObject(exobj.prim.200, split.by = "sample2")
-
-for (i in 1:length(exp.list)) {
-    exp.list[[i]] <- NormalizeData(exp.list[[i]], verbose = FALSE)
-    exp.list[[i]] <- FindVariableFeatures(exp.list[[i]], selection.method = "vst", 
-        nfeatures = 2000, verbose = FALSE)
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=names(cellsigs)[i]
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
 }
 
-k.filter <- min(200, min(sapply(exp.list, ncol)))
+#Add grade genes
+metaz.glm.annot=readRDS(paste(Resultsdir, "Precog.HNSCC.glm.grade.Liptak.metaz.allHNSCC.updated.061623.rds", sep=""))
 
-patient.anchors <- FindIntegrationAnchors(object.list = exp.list, k.filter = k.filter)
+anti.grade=metaz.glm.annot[metaz.glm.annot$metaz.glm<(-3.09),"AnnotationDbi"]
+pro.grade=metaz.glm.annot[metaz.glm.annot$metaz.glm>3.09,"AnnotationDbi"]
 
-exp.integrated <- IntegrateData(anchorset = patient.anchors, k.weight=k.filter)
+cellsigs=list(grade.up.genes=pro.grade, grade.down.genes=anti.grade)
+cellsigs=lapply(cellsigs, function(x) x[x %in% rownames(int)])
 
-int=exp.integrated
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=names(cellsigs)[i]
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
+}
 
-#Making cell type annotation that indicated unclassifed cells (That were not classified either as malignant or non-malignant by Puram et al.)
-int$Puram_supp_unclassified=factor(ifelse(which(pheno$non.malignant=="0" & pheno$malignant=="Non Malignant","1","0"))
-int$cell_type_with_unclassified=factor(ifelse(int$Puram_supp_unclassified==1, "Unclassified", as.character(int$CellType)))
+int$cell.type.collapsed=plyr::revalue(int$cell_type_with_unclassified, c("Macrophage"="Myeloid", "Dendritic"="Myeloid", "T cell"="T cell or NK cell"))
+int$cell.type.collapsed_relabeled=plyr::revalue(int$cell.type.collapsed, c("B cell"="B/Plasma cell", "T cell or NK cell"="T/NK cell"))
+
+#Adding LN status from supplementary data
+meta=int@meta.data
+
+si=readRDS(glue::glue("{DatadirPuram}Puram_supp_info.rds")) 
+clin=si[[2]] %>% as.data.frame()
+clin$sample2=gsub(" ","", clin$Designation)
+clin$COVAR_N_status=factor(ifelse(as.numeric(gsub("c","",gsub(".*N","",clin$Stage)))>0,1,0))
+clin$COV_HNSCC_study_grade=as.numeric(clin$Grade)
+#Need to add TP53 mutation status data 
+int$COVAR_N_status=clin[match(meta$sample2, clin$sample2),"COVAR_N_status"]
+int$COV_HNSCC_study_grade=clin[match(meta$sample2, clin$sample2),"COV_HNSCC_study_grade"]
+
+#Add TP53 mutation status 
+TP53=si[[3]] %>% as.data.frame() %>% dplyr::select(-V2, -V1) %>% dplyr::slice(1:2) %>% t %>% 
+  as.data.frame() %>% purrr::set_names("sample2","TP53_mut_stat") %>% 
+  mutate(TP53.mut=factor(ifelse(stringr::str_detect(TP53$TP53_mut_stat, "Mut"),"Mut","ND"), levels=c("ND","Mut")))
+
+int$TP53.mut=TP53[match(meta$sample2, TP53$sample2),"TP53.mut"]
+
+#Adding CytoTRACE
+cyt=readRDS(paste0(DatadirPuram, "Puram_epithelial_CytoTRACE.rds"))
+CytoTRACE=cyt$CytoTRACE
+int@meta.data$CytoTRACE=CytoTRACE[match(colnames(int), names(CytoTRACE))]
+
+
+#Adding PanglaoDB cell type markers
+pang=readRDS(paste0(DatadirU54, "PanglaoDB_markers_HNSC_celltypes.rds"))
+
+panggenes=pang[!is.na(pang$Puram_scRNASeq_symbol),"Puram_scRNASeq_symbol"]
+all(panggenes %in% rownames(int))
+
+panggenes=panggenes[panggenes %in% rownames(int)]
+
+#get genes associated with each cell type
+pang$cell.type2=gsub(" ",".", pang$cell.type)
+
+pang.pur=pang[!is.na(pang$Puram_scRNASeq_symbol),]
+celltypes=levels(as.factor(pang.pur$cell.type2))
+
+cellmark=lapply(celltypes, function(x) pang.pur[pang.pur$cell.type2==x,"Puram_scRNASeq_symbol"])
+names(cellmark)=celltypes
+
+cellsigs=cellmark
+
+#Add cell type marker signatures from Puram paper 
+#made function to add gene signatures to Seurate object 
+ga=as.matrix(GetAssayData(object = int))
+
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=paste0("PanglaoDB_signature_",names(cellsigs)[i])
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
+}
+
+saveRDS(int, paste0(DatadirPuram, "Integated_Puram_prim_patients200cells_update_160623.rds"))
+int=readRDS(paste0(DatadirPuram, "Integated_Puram_prim_patients200cells_update_160623.rds"))
+
+
+##########################################################################################################################
+#Add signatures to Puram primary and LNM object
+##########################################################################################################################
+
+#int=readRDS(paste0(DatadirPuram, "Integated_Puram_patients200cells_allwithlnm.rds"))
+DefaultAssay(int)="RNA"
+#21499  4992
+
+ga=GetAssayData(object = int)
+ga=as.matrix(ga)
+
+fm=readRDS(paste0(Datadir, "Findmarkers_Puram_U54_allcombined.update.061323.rds"))
+
+makesig=function(genetype, group){
+  levs=levels(fm[,group])
+  sigs=lapply(levs, function(lev) 
+  {x=fm[fm[,group]==lev,genetype]
+  x=x[!is.na(x)]
+  return(x)})
+  names(sigs)=levs
+  return(sigs)
+}
+
+#Add signatures to integrated object
+sigs=c(makesig(genetype="Matched_to_Puram",group="lnm.direction"),
+       makesig(genetype="Matched_to_Puram",group="lnm.gene.cluster.phenograph"),
+       makesig(genetype="Matched_to_Puram",group="survival.direction"),
+       makesig(genetype="Matched_to_Puram",group="survival.gene.cluster.phenograph"))
+
+cellsigs=sigs
+cellsigs=lapply(cellsigs, function(x) x[x %in% rownames(int)])
+
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=names(cellsigs)[i]
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
+}
+
+#Add grade genes
+metaz.glm.annot=readRDS(paste(Resultsdir, "Precog.HNSCC.glm.grade.Liptak.metaz.allHNSCC.updated.061623.rds", sep=""))
+
+anti.grade=metaz.glm.annot[metaz.glm.annot$metaz.glm<(-3.09),"AnnotationDbi"]
+pro.grade=metaz.glm.annot[metaz.glm.annot$metaz.glm>3.09,"AnnotationDbi"]
+
+cellsigs=list(grade.up.genes=pro.grade, grade.down.genes=anti.grade)
+cellsigs=lapply(cellsigs, function(x) x[x %in% rownames(int)])
+
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=names(cellsigs)[i]
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
+}
+
+int$cell.type.collapsed=plyr::revalue(int$cell_type_with_unclassified, c("Macrophage"="Myeloid", "Dendritic"="Myeloid", "T cell"="T cell or NK cell"))
+int$cell.type.collapsed_relabeled=plyr::revalue(int$cell.type.collapsed, c("B cell"="B/Plasma cell", "T cell or NK cell"="T/NK cell"))
+
+#Add cell cycle phase
+s.genes=cc.genes$s.genes
+g2m.genes=cc.genes$g2m.genes
+
+int=suppressWarnings(CellCycleScoring(int, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE))
+int$Phase=factor(int$Phase, levels=c("G1","S","G2M"))
+
+#Add EMT score 
+genes_EMT_epi=c("CDH1","DSP","TJP1")
+genes_EMT_mes=c("VIM","CDH2","FOXC2","SNAI1","SNAI2","TWIST1","GSC","FN1","ITGB6","MMP2","MMP3","MMP9","SOX10")
+
+emt=colSums(ga[genes_EMT_mes,])-colSums(ga[genes_EMT_epi,])
+int$EMT.score=emt
+
+#add primary tumor Seurat cluster
+int_prim=readRDS(paste0(DatadirPuram, "Integated_Puram_prim_patients200cells_update_160623.rds"))
+meta.prim=int_prim@meta.data
+
+int@meta.data$Seurat_cluster_primary=meta.prim[match(int@meta.data %>% rownames(), rownames(meta.prim)),"FindClusters.res0.8"]
+
+meta=int@meta.data
+
+si=readRDS(glue::glue("{DatadirPuram}Puram_supp_info.rds")) 
+clin=si[[2]] %>% as.data.frame()
+clin$sample2=gsub(" ","", clin$Designation)
+clin$COVAR_N_status=ifelse(as.numeric(gsub("c","",gsub(".*N","",clin$Stage)))>0,1,0)
+
+int$COVAR_N_status=clin[match(meta$sample2, clin$sample2),"COVAR_N_status"]
+int$COVAR_N_status[int$lymph_node=="Lymph Node"]=NA
+int$COVAR_N_status=factor(int$COVAR_N_status)
+
+#Add TP53 mutation status 
+#Note: Analysis of the full Puram mutation data calls file indicates that WES was performed for LNMs in following:"MEEI20" "MEEI25" "MEEI26" "MEEI5" 
+#"MEEI20 LN"and "MEEI25 LN" have mutations, MEEI17 and MEEI28 ND. 
+#However, MEEI17 doesn't have any LNM cells so should be removed
+TP53=si[[3]] %>% as.data.frame() %>% dplyr::select(-V2, -V1) %>% dplyr::slice(1:2) %>% t %>% 
+  as.data.frame() %>% purrr::set_names("sample2","TP53_mut_stat") 
+TP53=TP53 %>% 
+  mutate(TP53.mut=factor(ifelse(stringr::str_detect(TP53$TP53_mut_stat, "Mut"),"Mut","ND"), levels=c("ND","Mut")))
+
+int$TP53.mut=TP53[match(meta$sample2, TP53$sample2),"TP53.mut"]
+int$TP53.mut[int$lymph_node=="Lymph Node" & !int$sample2 %in% c("MEEI17","MEEI20","MEEI25","MEEI28")]=NA
+
+#Adding CytoTRACE score
+cyt=readRDS(paste0(DatadirPuram, "Puram_epithelial_CytoTRACE.rds"))
+CytoTRACE=cyt$CytoTRACE
+int@meta.data$CytoTRACE=CytoTRACE[match(colnames(int), names(CytoTRACE))]
+
+saveRDS(int, paste0(DatadirPuram, "Integated_Puram_patients200cells_allwithlnm_update_160623.rds"))
+#saveRDS(int, paste0(DatadirPuram, "Integated_Puram_patients200cells_allwithlnm_update_160623.rds"))
+
+##########################################################################################################################
+#Add signatures to Stanford primary
+##########################################################################################################################
+
+#int=readRDS(paste0(DatadirCCSBSc, "CCSB_scRNASeq_HNSCC_primary_enzymatic_intgrated_50PCs.mito.removed.rds"))
+DefaultAssay(int)="RNA"
+dim(int)
+#21352 12104
+
+ga=GetAssayData(object = int)
+ga=as.matrix(ga)
+
+fm=readRDS(paste0(Datadir, "Findmarkers_Puram_U54_allcombined.update.061323.rds"))
+
+#Add signatures to integrated object
+sigs=c(makesig(genetype="Matched_to_Stanford",group="lnm.direction"),
+       makesig(genetype="Matched_to_Stanford",group="lnm.gene.cluster.phenograph"),
+       makesig(genetype="Matched_to_Stanford",group="survival.direction"),
+       makesig(genetype="Matched_to_Stanford",group="survival.gene.cluster.phenograph"))
+
+cellsigs=sigs
+cellsigs=lapply(cellsigs, function(x) x[x %in% rownames(int)])
+
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=names(cellsigs)[i]
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
+}
+
+#Add grade genes
+metaz.glm.annot=readRDS(paste(Resultsdir, "Precog.HNSCC.glm.grade.Liptak.metaz.allHNSCC.updated.061623.rds", sep=""))
+
+anti.grade=metaz.glm.annot[metaz.glm.annot$metaz.glm<(-3.09),"AnnotationDbi"]
+pro.grade=metaz.glm.annot[metaz.glm.annot$metaz.glm>3.09,"AnnotationDbi"]
+
+cellsigs=list(grade.up.genes=pro.grade, grade.down.genes=anti.grade)
+cellsigs=lapply(cellsigs, function(x) x[x %in% rownames(int)])
+
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=names(cellsigs)[i]
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
+}
+
+cyt=readRDS(paste0(DatadirCCSBSc, "U54_epithelial_CytoTRACE.rds"))
+CytoTRACE=cyt$CytoTRACE
+int@meta.data$CytoTRACE=CytoTRACE[match(colnames(int), names(CytoTRACE))]
+
+#Adding PanglaoDB cell marker genes
+pang=readRDS(paste0(DatadirU54, "PanglaoDB_markers_HNSC_celltypes.rds"))
+
+panggenes=pang[!is.na(pang$Stanford_scRNASeq_symbol),"Stanford_scRNASeq_symbol"]
+all(panggenes %in% rownames(int))
+
+panggenes=panggenes[panggenes %in% rownames(int)]
+
+#get genes associated with each cell type
+pang$cell.type2=gsub(" ",".", pang$cell.type)
+
+pang.stan=pang[!is.na(pang$Stanford_scRNASeq_symbol),]
+celltypes=levels(as.factor(pang.stan$cell.type2))
+
+cellmark=lapply(celltypes, function(x) pang.stan[pang.stan$cell.type2==x,"Stanford_scRNASeq_symbol"])
+names(cellmark)=celltypes
+
+cellsigs=cellmark
+
+#Add cell type marker signatures Stanford paper 
+#made function to add gene signatures to Seurate object 
+ga=as.matrix(GetAssayData(object = int))
+
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=paste0("PanglaoDB_signature_",names(cellsigs)[i])
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
+}
+
+saveRDS(int, paste0(DatadirCCSBSc, "CCSB_scRNASeq_HNSCC_primary_enzymatic_intgrated_50PCs.mito.removed_update_160623.rds"))
+int=readRDS(paste0(DatadirCCSBSc, "CCSB_scRNASeq_HNSCC_primary_enzymatic_intgrated_50PCs.mito.removed_update_160623.rds"))
+
+
+##########################################################################################################################
+#Add signatures to Stanford primary and LNM
+##########################################################################################################################
+
+int=readRDS(paste0(DatadirCCSBSc, "CCSB_scRNASeq_HNSCC_all_enzymatic_intgrated_50PCs.mito.removed.rds"))
+DefaultAssay(int)="RNA"
+dim(int)
+#21352 31922
+
+ga=GetAssayData(object = int)
+ga=as.matrix(ga)
+
+fm=readRDS(paste0(Datadir, "Findmarkers_Puram_U54_allcombined.update.061323.rds"))
+
+#Add signatures to integrated object
+sigs=c(makesig(genetype="Matched_to_Stanford",group="lnm.direction"),
+       makesig(genetype="Matched_to_Stanford",group="lnm.gene.cluster.phenograph"),
+       makesig(genetype="Matched_to_Stanford",group="survival.direction"),
+       makesig(genetype="Matched_to_Stanford",group="survival.gene.cluster.phenograph"))
+
+cellsigs=sigs
+cellsigs=lapply(cellsigs, function(x) x[x %in% rownames(int)])
+
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=names(cellsigs)[i]
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
+}
+
+#Add grade genes
+metaz.glm.annot=readRDS(paste(Resultsdir, "Precog.HNSCC.glm.grade.Liptak.metaz.allHNSCC.updated.061623.rds", sep=""))
+
+anti.grade=metaz.glm.annot[metaz.glm.annot$metaz.glm<(-3.09),"AnnotationDbi"]
+pro.grade=metaz.glm.annot[metaz.glm.annot$metaz.glm>3.09,"AnnotationDbi"]
+
+cellsigs=list(grade.up.genes=pro.grade, grade.down.genes=anti.grade)
+cellsigs=lapply(cellsigs, function(x) x[x %in% rownames(int)])
+
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=names(cellsigs)[i]
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
+}
+
+int$cell.type.collapsed=as.factor(plyr::revalue(int$cell.type, c("Myeloid cell"="Myeloid", "Dendritic cell"="Myeloid", "Endothelial cell"="Endothelial", "Epithelial"="Malignant", "Mast cell"="Mast", "NK cells"="T cell or NK cell", "T cell"="T cell or NK cell")))
+int$cell.type.collapsed_relabeled=plyr::revalue(int$cell.type.collapsed, c("B cell"="B/Plasma cell", "T cell or NK cell"="T/NK cell"))
+
+#Add cell cycle phase
+s.genes=cc.genes$s.genes
+g2m.genes=cc.genes$g2m.genes
+
+int=suppressWarnings(CellCycleScoring(int, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE))
+int$Phase=factor(int$Phase, levels=c("G1","S","G2M"))
+
+int$lymph_node=forcats::fct_recode(int$location, "Lymph Node" = "Met", "Non-Lymph Node"="Primary")
+
+#Add EMT score 
+genes_EMT_epi=intersect(c("CDH1","DSP","TJP1"), rownames(ga))
+genes_EMT_mes=intersect(c("VIM","CDH2","FOXC2","SNAI1","SNAI2","TWIST1","GSC","FN1","ITGB6","MMP2","MMP3","MMP9","SOX10"), rownames(ga))
+
+emt=colSums(ga[genes_EMT_mes,])-colSums(ga[genes_EMT_epi,])
+int$EMT.score=emt
+
+#
+addsigs=readRDS(paste0(Datadir, "Gene_signantures_cancer_scRNASeq.rds"))
+
+cellsigs=addsigs
+for(i in 1:length(cellsigs)){
+  cellsig=cellsigs[[i]]
+  featurename=names(cellsigs)[i]
+  int=addmetagenes(sig=cellsig, df=ga, so=int, fn=featurename)
+}
+
+#add primary tumor Seurat cluster
+int_prim=readRDS(paste0(DatadirCCSBSc, "CCSB_scRNASeq_HNSCC_primary_enzymatic_intgrated_50PCs.mito.removed_update_160623.rds"))
+meta.prim=int_prim@meta.data
+
+int@meta.data$Seurat_cluster_primary=meta.prim[match(int@meta.data %>% rownames(), rownames(meta.prim)),"FindClusters.res0.8"]
+
+#Adding CytoTRACE
+cyt=readRDS(paste0(DatadirCCSBSc, "U54_epithelial_CytoTRACE.rds"))
+
+CytoTRACE=cyt$CytoTRACE
+
+int@meta.data$CytoTRACE=CytoTRACE[match(colnames(int), names(CytoTRACE))]
 #
 
-#Running PCA
-all.genes = rownames(int)
-int=ScaleData(int, features = all.genes)
-int=RunPCA(int, npcs=50)
+saveRDS(int, paste0(DatadirCCSBSc, "CCSB_scRNASeq_HNSCC_all_enzymatic_intgrated_50PCs.mito.removed_update_160623.rds"))
+int=readRDS(paste0(DatadirCCSBSc, "CCSB_scRNASeq_HNSCC_all_enzymatic_intgrated_50PCs.mito.removed_update_160623.rds"))
 
-file=paste0(dir, "Elbowplot.integated_Puram_prim_patients200cells")
-png(file=paste(file,'.png',sep=''), units="in", width=6, height=6, res=600)
-ElbowPlot(int)
-dev.off()
 
-#Decided on 20 PCs based on the Elbow plot
-npcs=20
 
-int = FindNeighbors(int, dims = 1:npcs)
 
-####
-int.res.0.3 = FindClusters(int, resolution = 0.3)
-int.res.0.4 = FindClusters(int, resolution = 0.4)
-int.res.0.5 = FindClusters(int, resolution = 0.5)
-int.res.0.6 = FindClusters(int, resolution = 0.6)
-int.res.0.7 = FindClusters(int, resolution = 0.7)
-int.res.0.8 = FindClusters(int, resolution = 0.8)
-int.res.0.9 = FindClusters(int, resolution = 0.9)
-int.res.1 = FindClusters(int, resolution = 1)
 
-#add highres clusters as metadat to Seurat object
-int@meta.data[,"FindClusters.res0.3"]=Idents(int.res.0.3)
-int@meta.data[,"FindClusters.res0.4"]=Idents(int.res.0.4)
-int@meta.data[,"FindClusters.res0.5"]=Idents(int.res.0.5)
-int@meta.data[,"FindClusters.res0.6"]=Idents(int.res.0.6)
-int@meta.data[,"FindClusters.res0.7"]=Idents(int.res.0.7)
-int@meta.data[,"FindClusters.res0.8"]=Idents(int.res.0.8)
-#Names match colnames(patients.integrated$RNA)
-
-#
-library(umap)
-int=RunUMAP(int, dims = 1:npcs)
-
-#save the integrated object
-saveRDS(int, paste0(dir, "Integated_Puram_prim_patients200cells.rds"))
-
-#################################################################
-#################################################################
-#Processing GSE26549 (Saintigny et al. Oral premalignant lesion (Leukoplakia) dataset)
-#################################################################
-#################################################################
-
-gse="GSE26549"
-filePaths = GEOquery::getGEOSuppFiles(gse, baseDir = expdir)
-
-#processing all hgu133plus2 datasets
-library(oligo)
-library(hugene10sthsentrezg.db)
-library(hugene10sthsentrezgcdf)
-library(hugene10sthsentrezgprobe)
-
-celdir=paste0(celdir, "/GSE26549/")
-setwd(celdir)
-untar("GSE26549_RAW.tar")
-
-data=affy::ReadAffy(celfile.path=celdir, cdfname="hugene10sthsentrezgcdf") 
-eset=affy::mas5(data)
-
-###
-mas5.ALL=exprs(eset)
-colnames(mas5.ALL)=gsub(" ","", colnames(mas5.ALL))
-colnames(mas5.ALL)=gsub("[.].*","", colnames(mas5.ALL))
-colnames(mas5.ALL)=gsub("_.*","", colnames(mas5.ALL))
-
-#Remove Affy control probes, which are at the end of the document and mess with the adding gene symbols to the rows
-#mas5.ALL=mas5.ALL[-grep("AFFX-", rownames(mas5.ALL)),]
-#Format values to 5 decimal places
-mas5.ALL=format(mas5.ALL, digits=5)
-mas5.ALL=as.matrix(mas5.ALL)
-
-mas5.ALL2=apply(mas5.ALL, 1, function(x) as.numeric(as.character(x)))
-mas5.ALL2=as.data.frame(t(mas5.ALL2))
-colnames(mas5.ALL2)=colnames(mas5.ALL)
-
-#get clinical info 
-library(GEOquery)
-gse="GSE26549"
-Sys.setenv(VROOM_CONNECTION_SIZE=500072)
-getSet=getGEO(gse)
-info=pData(getSet[[1]])
-
-setdiff(rownames(info), colnames(mas5.ALL2))
-setdiff(colnames(mas5.ALL2), rownames(info))
-
-info=info[match(colnames(mas5.ALL2), rownames(info)),]
-#quantile normalize
-mas5.ALL.qn=preprocessCore::normalize.quantiles(as.matrix(mas5.ALL2))
-dimnames(mas5.ALL.qn)=dimnames(mas5.ALL2)
-
-#collapse probes to genes 
-probes.ALL=row.names(mas5.ALL)
-entrezIDmap=hugene10sthsentrezgENTREZID
-entrezID.ALL = unlist(mget(probes.ALL, entrezIDmap))
-ID.ALL = unlist(mget(probes.ALL, entrezIDmap))
-collapserows.annot=as.data.frame(cbind(ID.ALL, entrezID.ALL))
-collapserows.annot$probe=rownames(collapserows.annot)
-collapserows.annot=na.omit(collapserows.annot[,c("entrezID.ALL", "probe")])
-
-mas5.collapse=WGCNA::collapseRows(datET=mas5.ALL.qn, rowGroup=collapserows.annot$entrezID.ALL, rowID=collapserows.annot$probe)
-mas5.c=mas5.collapse$datETcollapsed
-mas5.clog2=log2(mas5.c)
-
-#Now z-score the genes
-mas5.z=apply(mas5.clog2, 1, function(x)  (x-mean(x))/sd(x))
-mas5.z=as.data.frame(t(mas5.z))
-all(colnames(mas5.z)==rownames(info))
-
-allinfo=list(info=info, mas5.z=mas5.z)
-saveRDS(allinfo, paste0(celdir, "processed_exp_z_scores_", gse, ".rds"))
 
 
