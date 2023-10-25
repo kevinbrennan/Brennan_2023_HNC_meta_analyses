@@ -1,5 +1,4 @@
 library(msigdbr)
-source("~/Documents/Projects/HNSCC_PreCog/data/Pecog_HNSCC_directories.R")
 source(paste0(RscriptsPath, "basic_scripts.R"))
 
 require(XML)
@@ -37,7 +36,6 @@ MEMBERS_EZID=MEMBERS_EZID_list[names]
 #Applying fGSEA to LNM-associated genes
 ####################################################
 
-#lnm.list=readRDS(paste0(Resultsdir, "Precog.meta.analysis.node.status.all.HNSCC.updated.03.30.2010.rds"))
 lnm.list=readRDS(paste(Resultsdir,"Precog.meta.analysis.node.status.all.HNSCC.updated.06.09.23.rds", sep=""))
 
 meta2=lnm.list$meta
@@ -68,7 +66,6 @@ fgseaRes.lnm=fgseaRes.lnm[order(fgseaRes.lnm$pval),]
 fgseaRes.lnm.sig=as.data.frame(fgseaRes.lnm[which(fgseaRes.lnm$padj<0.05),])
 
 leading.edge.symbols=na.omit.char(mapIds(org.Hs.eg.db, keys=unlist(fgseaRes.lnm.sig$leadingEdge[1]), column="SYMBOL", keytype="ENTREZID", multiVals="first"))
-#Both AURKA and AURKB in there. Look at Quah paper for mention of AURK
 
 fgseaRes=rbind(fgseaRes.lnm[fgseaRes.lnm$NES>0,][1:10,],fgseaRes.lnm[fgseaRes.lnm$NES<0,][1:10,])
 
@@ -156,7 +153,6 @@ dev.off()
 #Applying fGSEA to survival-associated genes
 ####################################################
 
-#PRECOG.HNSCC.All=readRDS(paste0(Resultsdir, "Precog.HNSCC.coxph.survival.allstudies.allHNSCC.updated.06_09_2023.rds"))
 metaz.coxph.annot=readRDS(paste(Resultsdir, "Precog.HNSCC.coxph.Liptak.metaz.allHNSCC.updated.06_09_2023.rds", sep=""))
 
 ranks.Z=metaz.coxph.annot$metaz.coxph
@@ -243,9 +239,7 @@ library(msigdbr)
 genesets=msigdbr(species = "Homo sapiens", category = NULL, subcategory = NULL)
 genesets=genesets[genesets$gs_cat %in% c("C1", "C2", "C5", "C6", "H") & !genesets$gs_subcat %in% c("CGP"),]
 
-#arraygenes=readRDS("~/Documents/Projects/HNSCC_PreCog/results/Precog.meta.analysis.genes.all.HNSCC.rds")
-#Easier to report as symbols 
-#arraygenes=readRDS(paste(Resultsdir,"Precog.meta.analysis.genes.all.HNSCC.updated.06.09.23.rds", sep=""))
+arraygenes=readRDS(paste(Resultsdir,"Precog.meta.analysis.genes.all.HNSCC.updated.06.09.23.rds", sep=""))
 lnm.list=readRDS(paste(Resultsdir,"Precog.meta.analysis.node.status.all.HNSCC.updated.06.09.23.rds", sep=""))
 arraygenes=names(lnm.list$meta)
 

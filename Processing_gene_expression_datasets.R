@@ -321,7 +321,7 @@ mas5.ALL2=mas5.ALL2[,colnames(mas5.ALL2) %in% IDs]
 assign(paste(gse, "_processed", sep=""), ProcessRawAffyForPrecogFromQuantialNormalization(mas5.ALL2, gse, entrezIDmap, celdir.output))
 
 ######################################################
-Datasets that require oligo package# 
+#Datasets that require oligo package# 
 #########################################################
 
 gse="GSE95805"
@@ -1039,7 +1039,7 @@ int=readRDS(paste0(DatadirPuram, "Integated_Puram_prim_patients200cells_update_1
 #Add signatures to Puram primary and LNM object
 ##########################################################################################################################
 
-#int=readRDS(paste0(DatadirPuram, "Integated_Puram_patients200cells_allwithlnm.rds"))
+int=readRDS(paste0(DatadirPuram, "Integated_Puram_patients200cells_allwithlnm.rds"))
 DefaultAssay(int)="RNA"
 #21499  4992
 
@@ -1123,9 +1123,6 @@ int$COVAR_N_status[int$lymph_node=="Lymph Node"]=NA
 int$COVAR_N_status=factor(int$COVAR_N_status)
 
 #Add TP53 mutation status 
-#Note: Analysis of the full Puram mutation data calls file indicates that WES was performed for LNMs in following:"MEEI20" "MEEI25" "MEEI26" "MEEI5" 
-#"MEEI20 LN"and "MEEI25 LN" have mutations, MEEI17 and MEEI28 ND. 
-#However, MEEI17 doesn't have any LNM cells so should be removed
 TP53=si[[3]] %>% as.data.frame() %>% dplyr::select(-V2, -V1) %>% dplyr::slice(1:2) %>% t %>% 
   as.data.frame() %>% purrr::set_names("sample2","TP53_mut_stat") 
 TP53=TP53 %>% 
@@ -1140,13 +1137,12 @@ CytoTRACE=cyt$CytoTRACE
 int@meta.data$CytoTRACE=CytoTRACE[match(colnames(int), names(CytoTRACE))]
 
 saveRDS(int, paste0(DatadirPuram, "Integated_Puram_patients200cells_allwithlnm_update_160623.rds"))
-#saveRDS(int, paste0(DatadirPuram, "Integated_Puram_patients200cells_allwithlnm_update_160623.rds"))
 
 ##########################################################################################################################
 #Add signatures to Stanford primary
 ##########################################################################################################################
 
-#int=readRDS(paste0(DatadirCCSBSc, "CCSB_scRNASeq_HNSCC_primary_enzymatic_intgrated_50PCs.mito.removed.rds"))
+int=readRDS(paste0(DatadirCCSBSc, "CCSB_scRNASeq_HNSCC_primary_enzymatic_intgrated_50PCs.mito.removed.rds"))
 DefaultAssay(int)="RNA"
 dim(int)
 #21352 12104

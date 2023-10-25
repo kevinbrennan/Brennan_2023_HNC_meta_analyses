@@ -1,10 +1,12 @@
 
 #get directories used in this script
-source("~/Documents/Projects/HNSCC_PreCog/data/Pecog_HNSCC_directories.R")
 RscriptsPath="~/Documents/scripts/rscripts2/"
 source(paste(RscriptsPath,"basic_scripts.R",sep=""))
 
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.rds")
+#Get curated gene expression and clinical data for all meta-analysis studies
+#This was generated using script Processing_gene_expression_datasets.R
+
+alldata=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.rds")
 explist=alldata$explist
 zscores.list=explist
 infolist=alldata$infolist
@@ -161,7 +163,7 @@ lapply(1:length(explist.survival), function(x) all(colnames(explist.survival[[x]
 ########################################################
 
 #
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.rds")
+alldata=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.rds")
 explist=alldata$explist
 zscores.list=explist
 infolist=alldata$infolist
@@ -302,7 +304,7 @@ metaz.coxph.annot=readRDS(paste(Resultsdir, "Precog.HNSCC.coxph.Liptak.metaz.all
 pvals.sig=metaz.coxph.annot[!is.na(metaz.coxph.annot$survival.direction),"gene"]
 
 #Make a combined matrix of gene expression data from studies, which will be used to cluster genes based on coexpression 
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.rds")
+alldata=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.rds")
 explist=alldata$explist
 zscores.list=explist
 infolist=alldata$infolist
@@ -474,7 +476,7 @@ allgenes2$symbol_AnnotationDbi=as.character(mapIds(org.Hs.eg.db, keys=allgenes2$
 length(which(is.na(allgenes2$symbol_AnnotationDbi))) #6 missing
 
 #Match gene symbols to Puram and Stanford scRNA-Seq datasets
-int=readRDS("~/Documents/Projects/U54/Puram/data/Integated_Puram_patients200cells_allwithlnm.rds")
+int=readRDS("Datadir/Integated_Puram_patients200cells_allwithlnm.rds")
 ga=as.data.frame(as.matrix(GetAssayData(object = int$RNA)))
 
 genes3=allgenes2$symbol_AnnotationDbi
@@ -508,7 +510,7 @@ length(which(is.na(allgenes2$Matched_to_Puram))) #Only 6 genes remain missing
 
 #Match genes to Stanford 
 #get Stanford scRNA-Seq dataset and add matching column 
-int=readRDS("~/Documents/Projects/U54/CCSB_scRNASeq/data/CCSB_scRNASeq_HNSCC_all_enzymatic_intgrated_50PCs.mito.removed.rds")
+int=readRDS("Datadir/CCSB_scRNASeq_HNSCC_all_enzymatic_intgrated_50PCs.mito.removed.rds")
 DefaultAssay(int)="RNA"
 
 missinggenes=setdiff(genes3, rownames(int$RNA))
@@ -991,7 +993,7 @@ barplot(sweep(tab, MARGIN=2, surv.nums, "/"), beside=T, col=c(1:2))
 
 RscriptsPath="/Users/kbren/Documents/scripts/rscripts/"
 source(paste0(RscriptsPath, "basic_scripts.R"))
-source("~/Documents/Projects/HNSCC_PreCog/data/Pecog_HNSCC_directories.R")
+source("Datadir/Pecog_HNSCC_directories.R")
 
 fm=readRDS(paste0(Datadir, "Findmarkers_Puram_U54_allcombined.update.061323.rds"))
 
@@ -1011,7 +1013,7 @@ sigs=
     makesig(genetype="gene",group="survival.direction"),
     makesig(genetype="gene",group="survival.gene.cluster.phenograph"))
 
-alldata2=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
+alldata2=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
 
 explist=alldata2$explist
 infolist=alldata2$infolist
@@ -1041,7 +1043,7 @@ for(i in 1:length(sigslist)){
 
 alldata3=list(sigslist=sigslist, explist=explist, infolist=infolist)
 
-saveRDS(alldata3, "~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.sig.exp.clin.data.updated.180623.rds")
+saveRDS(alldata3, "Datadir/Precog.HNSCC.all.sig.exp.clin.data.updated.180623.rds")
 
 ################################
 #Run meta-analysis for association of signatures with survival adjusting for HPV status
@@ -1150,7 +1152,7 @@ saveRDS(tab, paste0(Figuresdir.grobs, "heatmap_meta_Z_survival.sourcedata_061823
 #Test association of LNM-associated signatures with LNM adjusted for HPV
 #############################
 
-alldata2=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
+alldata2=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
 
 explist=alldata2$explist
 infolist=alldata2$infolist
@@ -1498,7 +1500,7 @@ geneannot = rowAnnotation(foo = anno_mark(at = match(genes, rownames(zarray)), l
 #make barplots showing the proportion of HPV as well as the subanatomic locations of the samples withn the studies 
 Survival_objects=readRDS(paste(Resultsdir, "Precog.HNSCC.survival.objects.all.HNSCC.rds", sep=""))
 
-alldata2=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
+alldata2=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
 infolist=alldata2$infolist
 
 infolist=infolist[names(Survival_objects)]
@@ -1690,7 +1692,7 @@ rowannot=rowAnnotation(df = df1, col = genecols, show_annotation_name = TRUE)
 LNM_objects=readRDS(paste0(Datadir, "Precog.HNSCC.lymph.node.metastasis.objects.all.HNSCC.rds"))
 LNM_objects$`E-MTAB-1328`$COVAR_N_status
 
-alldata2=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
+alldata2=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
 infolist=alldata2$infolist
 
 infolist=infolist[names(LNM_objects)]
@@ -2076,7 +2078,7 @@ metatab=readRDS(paste0(Datadir, "zscores_lnm_all_genes_updated.06.09.23.rds"))
 #Get lnm gene Phenograph clusters
 ##########################################################################
 
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.rds")
+alldata=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.rds")
 explist=alldata$explist
 zscores.list=explist
 infolist=alldata$infolist
@@ -2279,13 +2281,13 @@ make.meta.glm=function(glmlist, glmlistname){
 #########################################
 ############################################
 
-source("~/Documents/Projects/HNSCC_PreCog/data/Pecog_HNSCC_directories.R")
+source("Datadir/Pecog_HNSCC_directories.R")
 source(paste0(RscriptsPath, "basic_scripts.R"))
 
 #Run meta-analysis of genes associated with level of differentiation in PRECOG
 
 #have formatted differentiation level
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.rds")
+alldata=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.rds")
 explist=alldata$explist
 infolist=alldata$infolist
 
@@ -2675,7 +2677,7 @@ dev.off()
 #Get forest plot figures to test for linear association with grade 
 
 #have formatted differentiation level
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
+alldata=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
 
 explist=alldata$explist
 infolist=alldata$infolist
@@ -2861,7 +2863,7 @@ dev.off()
 
 signature="EMT.score"
 
-int=readRDS("~/Documents/Projects/U54/Puram/data/Integated_Puram_prim_patients200cells_update_160623.rds")
+int=readRDS("Datadir/Integated_Puram_prim_patients200cells_update_160623.rds")
 DefaultAssay(int)="RNA"
 
 keep=colnames(int[,int$cell.type.collapsed!="Unclassified" & int$cell.type.collapsed!="myocyte"])
@@ -2936,9 +2938,9 @@ dev.off()
 #Plotting grade in TCGA
 ##########################################################
 
-dat2=readRDS("~/Documents/Projects/HNSCC_PreCog/data/TCGA_HNSC_Gencode32_tximport_counts_Combat_entrezid.rds")
+dat2=readRDS("Datadir/TCGA_HNSC_Gencode32_tximport_counts_Combat_entrezid.rds")
 
-alldata=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.rds")
+alldata=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.rds")
 
 explist=alldata$explist
 infolist=alldata$infolist
@@ -3008,7 +3010,7 @@ dev.off()
 #Meta-analysis of survival-associated genes adjusted for age and sex
 #######################################################################################################
 
-alldata2=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
+alldata2=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
 
 explist=alldata2$explist
 infolist=alldata2$infolist
@@ -3215,7 +3217,7 @@ dev.off()
 ##############################################################################################################################################
 
 #Get studies with enough LNM cases, women and men, age 
-alldata2=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
+alldata2=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
 
 explist=alldata2$explist
 infolist=alldata2$infolist
@@ -3383,7 +3385,7 @@ dev.off()
 ####################################################################################################
 
 #Need to restrict to HPV negative for studies in which HPV status us known, then inlcude all cases in studies that can't contain HPV OPH
-alldata2=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
+alldata2=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
 
 explist=alldata2$explist
 infolist=alldata2$infolist
@@ -3559,7 +3561,7 @@ dev.off()
 ####################################################################################################
 
 #Need to restrict to HPV negative for studies in which HPV status us known, then inlcude all cases in studies that can't contain HPV OPH
-alldata2=readRDS("~/Documents/Projects/HNSCC_PreCog/data/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
+alldata2=readRDS("Datadir/Precog.HNSCC.all.exp.clin.data.curated.for.PRECOG.rds")
 
 explist=alldata2$explist
 infolist=alldata2$infolist
