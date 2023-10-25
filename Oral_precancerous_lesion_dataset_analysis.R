@@ -8,9 +8,6 @@ library(preprocessCore)
 library(WGCNA)
 library(GEOquery)
 
-setwd("/oak/stanford/groups/andrewg/users/kbren/projects/Puram/data/")
-expdir="/oak/stanford/groups/andrewg/users/kbren/projects/Puram/data/"
-
 install.packages(file.path(expdir, "hugene10sthsentrezg.db_25.0.0.tar.gz"), repos = NULL)
 install.packages(file.path(expdir, "hugene10sthsentrezgcdf_25.0.0.tar.gz"), repos = NULL)
 install.packages(file.path(expdir, "hugene10sthsentrezgprobe_25.0.0.tar.gz"), repos = NULL)
@@ -61,7 +58,6 @@ setdiff(rownames(info), colnames(mas5.ALL2))
 setdiff(colnames(mas5.ALL2), rownames(info))
 
 info=info[match(colnames(mas5.ALL2), rownames(info)),]
-#All are oral luekoplakia so I guess it is safe to quantile normalize
 #quantile normalize
 mas5.ALL.qn=preprocessCore::normalize.quantiles(as.matrix(mas5.ALL2))
 dimnames(mas5.ALL.qn)=dimnames(mas5.ALL2)
@@ -93,7 +89,7 @@ saveRDS(allinfo, paste0(celdir, "processed_exp_z_scores_", gse, ".rds"))
 
 library(RColorBrewer)
 
-allinfo=readRDS("~/Documents/Projects/HNSCC_PreCog/data/processed_exp_z_scores_GSE26549.rds")
+allinfo=readRDS("Datadir/processed_exp_z_scores_GSE26549.rds")
 exp=allinfo$mas5.z
 info=allinfo$info
 
@@ -206,7 +202,6 @@ tab=lapply(clusts, function(clust) {sigtab[,c(clust, "histology")] %>% purrr::se
 p=ggplot(tab, aes(x=Histology, y=Exp)) + geom_boxplot(outlier.shape=NA, aes(fill=Histology)) + geom_jitter(shape=16, size=0.6, position=position_jitter(0.2)) + facet_wrap(~Signature)+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(x = "Histology (Premalignant disease stage)", y="Scaled mean gene expression")+ scale_fill_manual(name = "Histology", values = c("#FFFFB2", "#FECC5C", "#FD8D3C", "#E31A1C"), labels = c("hyperplasia" = "Hyperplasia", "mild dysplasia" = "Mild dysplasia", "moderate dysplasia" = "Moderate dysplasia", "severe dysplasia"="Severe dysplasia"))+ theme(axis.text.x=element_blank(),axis.ticks.x=element_blank())
 p=p + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_rect(fill = "white", colour = "black",size = 0.5, linetype = "solid"))
 
-p
 
 file=paste0(Figuresdir, "boxplot_GSE26549_oral_dysplasia_grade_ggplot_LNM_clusters")
 pdf(file=paste0(file,'.pdf',sep=''), height = 6,  width = 10, family = "Helvetica")
